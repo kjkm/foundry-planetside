@@ -1,0 +1,53 @@
+<div class="tab" data-tab="planetside" data-group="main">
+    <div class="form-group">
+        <label>Enable Planetside</label>
+        <input type="checkbox" name="flags.planetside.enabled" {{#if enabled}}checked{{/if}}>
+    </div>
+    <p class="notes">Render this scene's background image as a 3D globe in space, with stars, atmosphere, and a sun. Saving with this enabled activates the globe view immediately on the current scene.</p>
+
+    <hr>
+
+    <h3>Title overlay</h3>
+    <p class="notes">A title and optional subtitle rendered in a corner of the canvas while Planetside is active. Leave both empty to hide.</p>
+
+    <div class="form-group">
+        <label>Title</label>
+        <input type="text" name="flags.planetside.title" value="{{title}}">
+    </div>
+
+    <div class="form-group">
+        <label>Title font</label>
+        <select name="flags.planetside.titleFont">
+            {{selectOptions fontOptions selected=titleFont}}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Title size (px)</label>
+        <input type="number" name="flags.planetside.titleSize" value="{{titleSize}}" min="8" max="120" step="1">
+    </div>
+
+    <div class="form-group">
+        <label>Subtitle</label>
+        <input type="text" name="flags.planetside.subtitle" value="{{subtitle}}">
+    </div>
+
+    <div class="form-group">
+        <label>Subtitle font</label>
+        <select name="flags.planetside.subtitleFont">
+            {{selectOptions fontOptions selected=subtitleFont}}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Subtitle size (px)</label>
+        <input type="number" name="flags.planetside.subtitleSize" value="{{subtitleSize}}" min="8" max="120" step="1">
+    </div>
+
+    <div class="form-group">
+        <label>Corner</label>
+        <select name="flags.planetside.titleCorner">
+            {{selectOptions cornerOptions selected=titleCorner}}
+        </select>
+    </div>
+</div>

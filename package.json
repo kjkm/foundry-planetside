@@ -1,0 +1,13 @@
+{
+  "name": "planetside",
+  "version": "0.1.0",
+  "description": "Foundry VTT module that renders a battlemap scene as a 3D globe.",
+  "private": true,
+  "scripts": {
+    "vendor": "node setup.js",
+    "postinstall": "node setup.js"
+  },
+  "dependencies": {
+    "three": "0.160.0"
+  }
+}

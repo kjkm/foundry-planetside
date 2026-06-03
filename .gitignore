@@ -1,0 +1,4 @@
+node_modules/
+scripts/vendor/three.module.js
+.DS_Store
+*.log

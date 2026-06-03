@@ -1,0 +1,30 @@
+#planetside-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 5;
+  display: block;
+  background: #000;
+  touch-action: none;
+}
+
+body.planetside-active #board {
+  visibility: hidden;
+}
+
+/* The globe canvas (#planetside-canvas) sits at z-index 5 over the interface.
+   Lift the HUD layer above it so the right-click Token HUD is visible and
+   clickable on the globe (OverlayReanchor repositions the inner #token-hud
+   element to the token's projected sphere position each frame).
+
+   Foundry normally transforms #hud to match the flat canvas pan/zoom so that
+   placeable HUDs (positioned in canvas coordinates) align with the board. On the
+   globe we instead anchor the inner #token-hud in viewport pixels, so we must
+   neutralize #hud's transform/offset or our coordinates get shifted again. */
+body.planetside-active #hud {
+  z-index: 10;
+  transform: none !important;
+  top: 0 !important;
+  left: 0 !important;
+}
