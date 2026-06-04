@@ -382,6 +382,34 @@ export class Scene {
     };
   }
 
+  // Returns the surface tangent frame at (lat, lon): outward radial normal, the
+  // north (increasing-latitude) and east (increasing-longitude) tangents, and a
+  // quaternion orienting a plane so local +X→east, +Y→north, +Z→outward normal.
+  // Tangents are derived by finite-differencing the Mercator sphere mapping, so
+  // this stays correct regardless of the mapping's internal convention. Used to
+  // lay token meshes flat on the surface with a consistent (non-wobbling) roll.
+  surfaceFrame(lat, lon) {
+    const EPS = 1e-3;
+    const P = this.mercator.latLonToSpherePoint(lat, lon, 1);
+    const Pn = this.mercator.latLonToSpherePoint(lat + EPS, lon, 1);
+
+    const normal = new THREE.Vector3(P.x, P.y, P.z).normalize();
+    let north = new THREE.Vector3(Pn.x - P.x, Pn.y - P.y, Pn.z - P.z);
+    north.addScaledVector(normal, -north.dot(normal)); // project onto tangent plane
+    if (north.lengthSq() < 1e-12) {
+      // Degenerate near a pole (the body is cropped at ±85°, so this is defensive).
+      north.set(0, 1, 0).addScaledVector(normal, -normal.y);
+      if (north.lengthSq() < 1e-12) north.set(1, 0, 0).addScaledVector(normal, -normal.x);
+    }
+    north.normalize();
+
+    // ENU is right-handed (E × N = U), so east = north × normal.
+    const east = new THREE.Vector3().crossVectors(north, normal).normalize();
+    const m = new THREE.Matrix4().makeBasis(east, north, normal);
+    const quaternion = new THREE.Quaternion().setFromRotationMatrix(m);
+    return { east, north, normal, quaternion };
+  }
+
   isFacingCamera(point) {
     const toCam = new THREE.Vector3()
       .copy(this.camera.position)
