@@ -101,6 +101,35 @@ Hooks.on("deleteToken", (tokenDocument) => {
   controller.tokenLayer?.removeToken(tokenDocument);
 });
 
+function docIsOnActiveScene(doc) {
+  if (!controller?.active) return false;
+  const sceneId = doc?.parent?.id ?? doc?.scene?.id;
+  return sceneId === canvas?.scene?.id;
+}
+
+Hooks.on("createTile", (tileDocument) => {
+  if (!docIsOnActiveScene(tileDocument)) return;
+  const placeable = tileDocument.object ?? tileDocument;
+  controller.tileLayer?.addTile(placeable);
+});
+
+Hooks.on("updateTile", (tileDocument, changes) => {
+  if (!docIsOnActiveScene(tileDocument)) return;
+  const placeable = tileDocument.object ?? tileDocument;
+  controller.tileLayer?.updateTile(placeable, changes);
+});
+
+Hooks.on("refreshTile", (tile) => {
+  if (!controller?.active) return;
+  if (tile?.scene?.id !== canvas?.scene?.id) return;
+  controller.tileLayer?.updateTile(tile, null);
+});
+
+Hooks.on("deleteTile", (tileDocument) => {
+  if (!docIsOnActiveScene(tileDocument)) return;
+  controller.tileLayer?.removeTile(tileDocument);
+});
+
 Hooks.on("updateScene", (scene, changes) => {
   if (!controller) return;
   if (scene.id !== canvas?.scene?.id) return;

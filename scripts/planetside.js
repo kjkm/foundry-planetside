@@ -5,6 +5,7 @@ import { InputForwarder } from "./input.js";
 import { OverlayReanchor } from "./overlays.js";
 import { TitleOverlay, readTitleFlags } from "./title.js";
 import { TokenLayer } from "./tokens.js";
+import { TileLayer } from "./tiles.js";
 
 export class Planetside {
   constructor() {
@@ -17,6 +18,7 @@ export class Planetside {
     this.overlays = null;
     this.titleOverlay = null;
     this.tokenLayer = null;
+    this.tileLayer = null;
     this._tickerCb = null;
   }
 
@@ -54,6 +56,12 @@ export class Planetside {
       hostElement: this.host
     });
 
+    this.tileLayer = new TileLayer({
+      scene3d: this.scene3d,
+      mercator: this.mercator,
+      hostElement: this.host
+    });
+
     this.input = new InputForwarder({
       scene3d: this.scene3d,
       mercator: this.mercator,
@@ -75,6 +83,7 @@ export class Planetside {
     this.titleOverlay.update(readTitleFlags(canvas.scene));
 
     this.tokenLayer.install();
+    this.tileLayer.install();
 
     this._tickerCb = () => this._frame();
     canvas.app.ticker.add(this._tickerCb);
@@ -94,6 +103,7 @@ export class Planetside {
       this._tickerCb = null;
     }
     this.tokenLayer?.destroy();
+    this.tileLayer?.destroy();
     this.titleOverlay?.destroy();
     this.overlays?.uninstall();
     this.input?.uninstall();
@@ -107,6 +117,7 @@ export class Planetside {
     this.overlays = null;
     this.titleOverlay = null;
     this.tokenLayer = null;
+    this.tileLayer = null;
     this.mercator = null;
     this.host = null;
     this.active = false;
@@ -115,6 +126,7 @@ export class Planetside {
   _frame() {
     if (!this.active) return;
     this.tokenLayer?.update();
+    this.tileLayer?.update();
     this.scene3d.render();
     this.overlays.update();
   }
