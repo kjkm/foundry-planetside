@@ -9,8 +9,8 @@ The previous change (`token-interaction`, archived) established that the globe d
 ## Goals / Non-Goals
 
 **Goals:**
-- Globe tokens visually mirror the flat `Token` display: image + selection/control border + status-effect icons + overlay effect + bars + target reticle + module-drawn decorations, always in sync.
-- One capture mechanism replaces the bespoke image pipeline; future decorations require no new code.
+- Globe tokens visually mirror the flat `Token` display: image + selection/control border + status-effect icons + resource bars + target reticle, always in sync. (See Decisions — Foundry v12's token anatomy means decorations are enumerated explicitly rather than captured wholesale, so arbitrary module-drawn decorations are NOT automatically included.)
+- One capture path replaces the bespoke image pipeline; adding a decoration is a one-line change to the rendered-objects list.
 - Decorations lie flat on the sphere with consistent orientation (no roll wobble), with the token's rotation reflected as on the flat map.
 - Re-capture is change-driven and coalesced, not per-frame, to keep cost bounded.
 
@@ -23,12 +23,31 @@ The previous change (`token-interaction`, archived) established that the globe d
 
 ## Decisions
 
-### Capture the `Token` display object, not the image URL
+> **Note (post-implementation):** the original plan was a single `renderer.generateTexture(token)` capturing the whole `Token`. Foundry v12's token anatomy made that impossible; the decisions below reflect what was actually built. See "Foundry v12 token anatomy constraints" for the discoveries that forced the change.
 
-Replace `TextureLoader.load(src)` with `canvas.app.renderer.generateTexture(token)` (or an equivalent render into a pooled `RenderTexture` followed by `renderer.extract`), feeding the result into a per-token `THREE.CanvasTexture`/`DataTexture` mapped onto the existing plane. The token image arrives as the container's `mesh` child, so no separate image load is needed.
+### Foundry v12 token anatomy constraints (discovered during implementation)
 
-- **Alternative — recreate each decoration as 3D geometry** (ring mesh for border, quads for icons): rejected. Reimplements Foundry's border-color and effect-grid layout, never covers module decorations, and accrues debt per decoration.
-- **Alternative — DOM overlays** (like nameplates): rejected for border/icons. Screen-flat overlays do not foreshorten with the sphere and a rectangular border cannot match a curved, limb-foreshortened token footprint.
+Three hard constraints shaped the real implementation:
+
+1. **The image is not a child of the `Token`.** `token.mesh` is a `PrimarySpriteMesh` parented to the `PrimaryCanvasGroup` (for occlusion/sorting). `generateTexture(token)` therefore captures only decorations, not the image.
+2. **The image mesh cannot be reparented and won't render in isolation.** Adding `token.mesh` to a temp container throws (`PrimaryCanvasObject instances may only be direct children of the PrimaryCanvasGroup`), and rendering the mesh through its occlusion shader outside the primary-group framebuffer produces only an **outline** (the fill is discarded).
+3. **The `Token` container holds occlusion/interaction children** (beyond border/bars/effects/tooltip/target/nameplate) that render a token-shaped **erase/transparent hole**; compositing the whole container over the image punches that hole out.
+
+### Capture per token via a stage-neutralized two-pass render
+
+Replace `TextureLoader.load(src)` with a per-token capture into a `THREE.CanvasTexture`:
+
+1. Once per frame, neutralize the canvas stage transform (`position=0, scale=1`) using `enableTempParent()`/`updateTransform()`/`disableTempParent()` (the root stage has no parent, so a raw `updateTransform()` dereferences null). This makes `getBounds()` return a stable, pan/zoom-independent world space.
+2. For each dirty token, compute the capture region as the union of the mesh's world AABB and the visible decoration objects' bounds; create a `RenderTexture`; then render with a projection `transform` that offsets by `-region.{x,y}`:
+   - **Image:** a plain `PIXI.Sprite` of `mesh.texture` (default shader → filled), sized to `mesh.width/height` (includes appearance scale), rotated by `mesh.rotation`, sign-flipped for mirrored tokens, anchored 0.5 at the mesh AABB center.
+   - **Decorations:** `token.border`, `token.bars`, `token.effects`, `token.target` — rendered **individually**, never the whole `Token` container (constraint 3).
+3. `renderer.extract.canvas(rt)` → `THREE.CanvasTexture` onto the plane.
+
+- **Alternative — `generateTexture(token)`**: rejected — captures only decorations (constraint 1).
+- **Alternative — capture `token.mesh` (reparented or in place)**: rejected — throws / renders outline-only (constraint 2).
+- **Alternative — recreate each decoration as 3D geometry**: rejected. Reimplements Foundry's border-color and effect-grid layout, never covers module decorations, accrues debt per decoration.
+- **Alternative — DOM overlays** (like nameplates): rejected for border/icons. Screen-flat overlays don't foreshorten with the sphere and a rectangular border can't match a curved, limb-foreshortened footprint.
+- **Trade-off:** because we enumerate specific decoration objects rather than capturing the container, module-drawn decorations that are *not* one of those four objects will not appear (the original "everything for free" promise is reduced). Adding more is a one-line list change.
 
 ### Re-capture coalesced on `refreshToken`
 
@@ -43,19 +62,20 @@ Drop the sprite `rotateZ`. The captured texture already contains the rotated ima
 
 - **Alternative — keep `lookAt` + `rotateZ`**: rejected; double-rotates the baked image and rolls the border/icon column inconsistently around the globe.
 
-### Anchoring via dynamic bounds with a center offset
+### Anchoring via the mesh AABB center (NOT document coordinates)
 
-The effect column / bars expand the captured bounds asymmetrically, so the captured image's center ≠ the token center. Use the dynamic captured bounds (no clipping) and offset the plane by the measured (bounds-center − token-center) vector, expressed in the tangent frame, so the token *center* still lands on its sphere point. Size the plane to the captured bounds in globe units.
+The decoration bounds expand the region asymmetrically, so the texture center ≠ the token center; the plane is offset along the tangent frame so the token *center* lands on its sphere point. **Critical subtlety discovered in implementation:** under the neutralized stage, `getBounds()` returns a world space whose origin does **not** match Foundry document coordinates (the primary group / token layer carry their own offset). So all capture math is done in that bounds space, and the token's visual center is taken from the **mesh AABB center** (the image is centered on the token), never from `token.center` (document space) — mixing the two produced a ~1500px bogus offset that flung the mesh off the sphere. Plane size = region size in globe units.
 
-- **Alternative — fixed capture region** (e.g. 2× footprint, centered): simpler anchoring but clips conditions on heavily-statused tokens. Rejected; clipping a player's visible conditions is worse than deterministic offset math. (Revisit if dynamic bounds prove fiddly.)
+- **Alternative — use `token.center` for the offset**: rejected — different coordinate space than `getBounds()`; caused the off-sphere bug.
+- **Alternative — fixed capture region** (e.g. 2× footprint): simpler but clips conditions on heavily-statused tokens. Not needed once the region is the union of mesh + decoration bounds.
 
 ### Exclude the nameplate from capture; keep the DOM nameplate
 
-Hide `token.nameplate` (and only that) during capture so the name is not baked flat onto the sphere, preserving the existing billboarded, legible DOM nameplate as the single name source. Bars and other children remain in the capture for v1.
+Hide `token.nameplate` during capture so the name is not baked flat onto the sphere, preserving the billboarded DOM nameplate as the single name source. Bars/target/effects/border remain in the capture for v1.
 
-### Per-token owned texture + pooled render target
+### Per-token owned texture; no render-target pool (yet)
 
-Retire the shared URL refcount cache (each composite is unique). Each entry owns its texture and a reusable `RenderTexture` sized to its capture; on re-capture, render into the pooled RT and refresh the Three texture, disposing the old one. On token removal / layer teardown, dispose both.
+Retire the shared URL refcount cache (each composite is unique). Each capture creates a `RenderTexture`, extracts to a `CanvasTexture`, and destroys the RT; the previous `CanvasTexture` is disposed on swap, and the owned texture on token removal / teardown. **RT pooling was deliberately NOT implemented** — captures are change-driven and infrequent, so pooling would optimize an unmeasured cost (matches the project's "don't pre-optimize" stance). The per-frame capture budget is the only guard.
 
 ## Risks / Trade-offs
 
@@ -68,6 +88,8 @@ Retire the shared URL refcount cache (each composite is unique). Each entry owns
 
 ## Open Questions
 
-- **Capture API**: `renderer.generateTexture(token, {resolution, region})` vs. an explicit pooled-RT `renderer.render(token, {renderTexture})` + `extract` (the `capture.js` pattern). Both work; pick during implementation based on control over resolution/region and allocation churn.
-- **Bars**: keep baking flat (v1 default) or split into billboarded DOM in a follow-up — defer until we see them on the globe.
+- **Capture API**: RESOLVED — neither `generateTexture(token)` nor mesh capture works (see constraints). Settled on the stage-neutralized two-pass render (image Sprite + per-decoration objects).
+- **Module decorations beyond the four enumerated objects** (border/bars/effects/target): not captured. If a needed module draws elsewhere on the token, extend the decoration list — open until a concrete case arises.
+- **Multi-token movement stress (task 5.8)**: the per-frame capture budget (`MAX_CAPTURES_PER_FRAME`) is unverified under many simultaneously-moving effect-laden tokens; tune or batch if it stutters.
+- **Bars**: keep baking flat (v1 default) or split into billboarded DOM in a follow-up — defer.
 - **Hover border**: leave absent, or set `token.hover` on raycast-hover as a pure render trigger — defer.
