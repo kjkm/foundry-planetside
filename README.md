@@ -35,7 +35,11 @@ The Planetside tab also includes a **Title overlay** section: a title and option
 
 ### Token layer
 
-Tokens on a Planetside-enabled scene appear as billboarded sprites on the globe at the sphere position corresponding to their flat-map coordinates, with DOM nameplates positioned below each sprite. Updates to tokens (create, move, delete, hide) propagate to the globe view automatically via Foundry hooks; the underlying token document is the source of truth, and all Foundry-side features (vision, status effects, module integrations) continue to operate against the real token.
+Tokens on a Planetside-enabled scene appear on the globe at the sphere position corresponding to their flat-map coordinates, lying flat against the surface, with DOM nameplates positioned below each. Each token is rendered by **mirroring its live Foundry `Token` display object** into a texture (`renderer.generateTexture`) rather than re-drawing the token image alone — so the globe shows the token image **plus** the selection/control border, status-effect icons, resource bars, target reticle, and any decorations other modules draw, composited exactly as on the flat map. The token's rotation is baked into the capture; the mesh is laid flat using the surface tangent frame so borders and the status-icon column keep a consistent orientation around the globe. Foundry's own nameplate is excluded from the capture so the billboarded DOM nameplate stays the single, legible name source.
+
+Re-capture is driven by the `refreshToken` hook (Foundry's "this token's display changed" signal) and coalesced to at most one capture per token per frame, with a small per-frame budget. Updates to tokens (create, move, delete, hide, control, status effects) propagate to the globe automatically; the underlying token document remains the source of truth, and all Foundry-side features continue to operate against the real token.
+
+Deferred: the hover border (the globe's semantic input never sets the flat `token.hover` state), bars/targets redrawn as billboarded DOM for legibility (they currently bake flat with everything else), and shared-WebGL-context zero-copy capture (v1 uses a GPU readback per capture — cheap because captures are change-driven).
 
 **Tokens on the globe respond to pointer events:**
 - **Left-click** a token sprite to select it (and left-click empty globe to deselect).
@@ -54,7 +58,7 @@ Drag-to-move tokens on the globe and drag-from-sidebar to create new tokens on t
 - A Three.js scene displays a sphere mesh in the visible canvas region. The captured texture is wrapped onto the sphere using Mercator UV mapping, cropped at ±85° latitude.
 - The polar caps above and below the cropped Mercator rectangle are filled with the average color of the rectangle's perimeter.
 - A constrained orbit camera circles the sphere with world Y locked as up and the sphere center as the look-at target. Elevation is clamped strictly short of ±90°.
-- Pointer events on the Three.js canvas first raycast the token meshes. A hit forwards the interaction semantically by calling Foundry's real token handlers (`control`, `releaseAll`, the actor sheet, the Token HUD). A miss is raycast against the sphere, inverse-Mercator-projected back to 2D scene coordinates, and dispatched as a synthesized PIXI federated event on the offscreen PIXI stage. (While the globe is active the module detaches Foundry's PIXI `EventSystem` from the hidden flat canvas so the real cursor doesn't fight the projected input, and restores it on deactivate.)
+- Pointer events on the Three.js canvas first raycast the token meshes. A hit forwards the interaction semantically by calling Foundry's real token handlers (`control`, `releaseAll`, the actor sheet, the Token HUD). A miss is raycast against the sphere, inverse-Mercator-projected back to 2D scene coordinates, and dispatched as a synthesized PIXI federated event on the offscreen PIXI stage.
 - A small set of Foundry DOM overlays (token HUD, chat bubbles, tooltips) are reanchored each frame to the screen position where their 2D scene coordinate projects on the sphere.
 
 ## Controls

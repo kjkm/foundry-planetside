@@ -11,7 +11,6 @@ export class InputForwarder {
     this.dom = scene3d.canvas;
     this._activePointerId = null;
     this._lastClickByTokenId = new Map();
-    this._savedEventTarget = null;
   }
 
   install() {
@@ -21,7 +20,6 @@ export class InputForwarder {
     this.dom.addEventListener("pointerleave", this._onPointer);
     this.dom.addEventListener("wheel", this._onWheelPassThrough, { passive: false });
     this.dom.addEventListener("contextmenu", this._onContextMenu);
-    this._detachFoundryEventSystem();
   }
 
   uninstall() {
@@ -31,38 +29,6 @@ export class InputForwarder {
     this.dom.removeEventListener("pointerleave", this._onPointer);
     this.dom.removeEventListener("wheel", this._onWheelPassThrough);
     this.dom.removeEventListener("contextmenu", this._onContextMenu);
-    this._reattachFoundryEventSystem();
-  }
-
-  // While the globe is up, #board is hidden and the player only interacts with
-  // the Three.js canvas. Foundry's PIXI EventSystem, however, stays bound to the
-  // real canvas and keeps mapping the *actual* cursor position into the same
-  // rootBoundary we dispatch into — yanking PIXI's over-target off whatever token
-  // our synthetic move just hovered, so MIM never settles into HOVER. Detach it
-  // so our forwarder is the sole source of events into the boundary.
-  _detachFoundryEventSystem() {
-    const es = canvas.app?.renderer?.events;
-    if (!es) return;
-    try {
-      this._savedEventTarget = es.domElement;
-      es.setTargetElement(null);
-      log("detached Foundry PIXI EventSystem from real canvas");
-    } catch (err) {
-      console.warn("[planetside-input] could not detach Foundry EventSystem", err);
-      this._savedEventTarget = null;
-    }
-  }
-
-  _reattachFoundryEventSystem() {
-    const es = canvas.app?.renderer?.events;
-    if (!es || !this._savedEventTarget) return;
-    try {
-      es.setTargetElement(this._savedEventTarget);
-      log("reattached Foundry PIXI EventSystem to real canvas");
-    } catch (err) {
-      console.warn("[planetside-input] could not reattach Foundry EventSystem", err);
-    }
-    this._savedEventTarget = null;
   }
 
   _onContextMenu = (e) => { e.preventDefault(); };
