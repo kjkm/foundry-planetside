@@ -52,6 +52,12 @@ Why not synthesize raw pointer events into Foundry's canvas? We tried; Foundry v
 
 Drag-to-move tokens on the globe and drag-from-sidebar to create new tokens on the globe are not yet implemented. Use the flat-map view for those actions; the globe view reflects changes immediately.
 
+### Tile layer
+
+Tiles render on the globe through the same display-capture pipeline as tokens (a shared `PlaceableLayer` base): each tile's image is captured and mapped onto a flat mesh laid on the sphere at the tile's Mercator-projected position, updating on tile create/move/delete/refresh. Tiles render image-only (no selection frame) and sit just beneath tokens.
+
+Tiles are **display-only** for now — clicking a tile on the globe does not yet do anything (forwarding clicks to trigger Monk's Active Tiles is a planned follow-up). Known limitations: large tiles are flat quads and won't follow the sphere's curvature; video/animated tiles show a still; overhead/roof tiles are drawn like background tiles without occlusion.
+
 ## How it works (briefly)
 
 - Foundry renders the active scene to its normal PIXI canvas. Planetside captures that canvas into a `PIXI.RenderTexture` each frame the scene is dirty.
