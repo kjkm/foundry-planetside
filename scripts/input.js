@@ -1,4 +1,12 @@
 const DOUBLE_CLICK_MS = 250;
+// A right gesture that moves less than this (client px) between down and up is a
+// right-CLICK (fire tile trigger); more is a right-DRAG (camera orbit).
+const RIGHT_CLICK_MAX_MOVE = 5;
+// MATT trigger-method strings for the right button. Confirm against the installed
+// MATT (its config dropdown) — `document.trigger` runs whatever the tile is gated
+// for, so a mismatch simply never fires rather than misbehaving.
+const TILE_RIGHTCLICK_METHOD = "rightclick";
+const TILE_DBL_RIGHTCLICK_METHOD = "dblrightclick";
 const DEBUG = false;
 const log = (...args) => { if (DEBUG) console.log("[planetside-input]", ...args); };
 
@@ -11,6 +19,7 @@ export class InputForwarder {
     this.dom = scene3d.canvas;
     this._activePointerId = null;
     this._lastClickByTokenId = new Map();
+    this._rightDown = null; // { x, y } client coords of the last right pointer-down
   }
 
   install() {
@@ -38,6 +47,17 @@ export class InputForwarder {
   _onPointer = (e) => {
     if (e.type === "pointerdown" || e.type === "pointerup") {
       log(`event ${e.type} button=${e.button} client=(${e.clientX},${e.clientY}) orbitDragging=${this.orbit.isDragging()}`);
+    }
+
+    // Right button: record the down for click-vs-drag discrimination, and handle
+    // the up HERE — before the orbit-drag guard below, because on right-up the
+    // orbit is still mid-drag (it clears its drag in its own later-running up
+    // handler). A right-click fires tile triggers; a right-drag orbits as before.
+    if (e.type === "pointerdown" && e.button === 2) {
+      this._rightDown = { x: e.clientX, y: e.clientY };
+    } else if (e.type === "pointerup" && e.button === 2) {
+      this._handleRightClickUp(e);
+      return;
     }
 
     if (this.orbit.isDragging()) return;
@@ -165,6 +185,48 @@ export class InputForwarder {
     const dist = Math.hypot(sceneX - last.x, sceneY - last.y);
     const threshold = canvas.dimensions?.size ?? 50;
     return (now - last.t) < DOUBLE_CLICK_MS && dist < threshold;
+  }
+
+  _isSphereDoubleRightClick(sceneX, sceneY) {
+    const now = performance.now();
+    const last = this._lastSphereRightClick;
+    this._lastSphereRightClick = { t: now, x: sceneX, y: sceneY };
+    if (!last) return false;
+    const dist = Math.hypot(sceneX - last.x, sceneY - last.y);
+    const threshold = canvas.dimensions?.size ?? 50;
+    return (now - last.t) < DOUBLE_CLICK_MS && dist < threshold;
+  }
+
+  // Right pointer-up: fire MATT right-click / double-right-click tile triggers,
+  // but only for a CLICK (negligible movement since right-down) — a right-DRAG is
+  // a camera orbit and fires nothing. Tokens take priority (their right-click HUD
+  // already opened on pointer-down), so a right-click over a token does not also
+  // fire a tile trigger.
+  _handleRightClickUp(e) {
+    const down = this._rightDown;
+    this._rightDown = null;
+    if (!down) return;
+
+    const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    if (moved > RIGHT_CLICK_MAX_MOVE) return; // it was a drag → orbit, no trigger
+
+    const rect = this.dom.getBoundingClientRect();
+    const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    if (this._raycastTokenSprites(ndcX, ndcY)) return; // token right-click took priority
+
+    const hit = this.scene3d.raycastSphere(ndcX, ndcY);
+    if (!hit) return;
+    const { lat, lon } = this.mercator.spherePointToLatLon(hit.point);
+    if (!this.mercator.isLatitudeOnBody(lat)) return;
+    const { u, v } = this.mercator.latLonToUv(lat, lon);
+    const dims = canvas.dimensions;
+    const sceneX = u * dims.sceneWidth + dims.sceneX;
+    const sceneY = v * dims.sceneHeight + dims.sceneY;
+
+    const isDouble = this._isSphereDoubleRightClick(sceneX, sceneY);
+    this._fireTileTriggers(sceneX, sceneY, TILE_RIGHTCLICK_METHOD);
+    if (isDouble) this._fireTileTriggers(sceneX, sceneY, TILE_DBL_RIGHTCLICK_METHOD);
   }
 
   _raycastTokenSprites(ndcX, ndcY) {
