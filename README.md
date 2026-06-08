@@ -56,7 +56,9 @@ Drag-to-move tokens on the globe and drag-from-sidebar to create new tokens on t
 
 Tiles render on the globe through the same display-capture pipeline as tokens (a shared `PlaceableLayer` base): each tile's image is captured and mapped onto a flat mesh laid on the sphere at the tile's Mercator-projected position, updating on tile create/move/delete/refresh. Tiles render image-only (no selection frame) and sit just beneath tokens.
 
-Tiles are **display-only** for now — clicking a tile on the globe does not yet do anything (forwarding clicks to trigger Monk's Active Tiles is a planned follow-up). Known limitations: large tiles are flat quads and won't follow the sphere's curvature; video/animated tiles show a still; overhead/roof tiles are drawn like background tiles without occlusion.
+**Clicking / double-clicking a tile on the globe fires its Monk's Active Tiles `click` / `dblclick` trigger.** A left-click that misses tokens is inverse-Mercator-projected to a scene coordinate, and any tile whose footprint covers that point and is configured for the matching trigger has its actions run via `tile.document.trigger` (a single click fires `click` tiles; a double-click additionally fires `dblclick` tiles). Tiles are located by scene coordinate (not by a rendered mesh), so **imageless MATT trigger regions still fire**. Only tiles configured for that trigger respond (an `enter`-only region won't); it no-ops cleanly when MATT isn't installed.
+
+Known limitations: only `click`/`dblclick` methods are forwarded (token-enter/hover and right-click are not — enter triggers already fire from flat-map movement, and right-click is reserved for the camera orbit); the footprint hit-test is axis-aligned (tile rotation ignored); overlapping trigger-tiles all fire. Rendering limitations: large tiles are flat quads and won't follow the sphere's curvature; video/animated tiles show a still; overhead/roof tiles are drawn like background tiles without occlusion; tiles are not selectable/editable on the globe.
 
 ## How it works (briefly)
 
