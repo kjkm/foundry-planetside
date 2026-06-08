@@ -4,6 +4,13 @@ import { TITLE_FONT_OPTIONS, TITLE_CORNER_OPTIONS, readTitleFlags } from "./titl
 const MODULE_ID = "planetside";
 const TAB_TEMPLATE = `modules/${MODULE_ID}/templates/scene-config-tab.hbs`;
 
+// v13 moved the Handlebars helpers under foundry.applications.handlebars; the bare
+// globals still exist on v13 but are deprecated. Prefer the namespaced versions
+// when present, fall back to the globals (v12).
+const _hb = globalThis.foundry?.applications?.handlebars;
+const loadTpl = (paths) => (_hb?.loadTemplates ?? loadTemplates)(paths);
+const renderTpl = (path, data) => (_hb?.renderTemplate ?? renderTemplate)(path, data);
+
 let controller = null;
 
 function isSceneEnabled(scene) {
@@ -30,7 +37,7 @@ Hooks.once("init", () => {
       controller.deactivate();
     }
   };
-  loadTemplates([TAB_TEMPLATE]);
+  loadTpl([TAB_TEMPLATE]);
   console.log(`[${MODULE_ID}] init`);
 });
 
@@ -46,29 +53,64 @@ Hooks.on("canvasTearDown", () => {
 
 Hooks.on("renderSceneConfig", async (app, html) => {
   const scene = app.document;
-  const enabled = isSceneEnabled(scene);
-  const titleFlags = readTitleFlags(scene);
-  const tabHtml = await renderTemplate(TAB_TEMPLATE, {
-    enabled,
-    ...titleFlags,
+  const tabHtml = await renderTpl(TAB_TEMPLATE, {
+    enabled: isSceneEnabled(scene),
+    ...readTitleFlags(scene),
     fontOptions: TITLE_FONT_OPTIONS,
     cornerOptions: TITLE_CORNER_OPTIONS
   });
 
+  // v13 SceneConfig is ApplicationV2 — the hook passes a native HTMLElement and
+  // uses data-action="tab" / data-group="sheet" tab markup. v12 is ApplicationV1
+  // (jQuery, class="item" nav, data-group="main"). Branch accordingly.
+  if (html instanceof HTMLElement) _injectPlanetsideTabV2(app, html, tabHtml);
+  else _injectPlanetsideTabV1(app, html, tabHtml);
+});
+
+// ApplicationV2 (Foundry v13): native DOM, the sheet's own tab controller handles
+// switching for any [data-action="tab"] in the matching data-group.
+function _injectPlanetsideTabV2(app, root, tabHtml) {
+  if (root.querySelector('[data-tab="planetside"]')) return; // guard re-render
+
+  const nav = root.querySelector('nav.sheet-tabs[data-application-part="tabs"]')
+    ?? root.querySelector('nav.sheet-tabs');
+  if (nav) {
+    nav.insertAdjacentHTML("beforeend",
+      '<a data-action="tab" data-group="sheet" data-tab="planetside">'
+      + '<i class="fa-solid fa-globe" inert></i><span>Planetside</span></a>');
+  }
+
+  // The template's wrapper is `<div class="tab" data-tab="planetside" data-group="main">`;
+  // remap the group to v13's "sheet" and match the scrollable sections.
+  const holder = document.createElement("div");
+  holder.innerHTML = tabHtml.trim();
+  const section = holder.firstElementChild;
+  if (!section) return;
+  section.dataset.group = "sheet";
+  section.classList.add("scrollable");
+
+  const sheetTabs = [...root.querySelectorAll('div.tab[data-group="sheet"], section.tab[data-group="sheet"]')];
+  const lastTab = sheetTabs[sheetTabs.length - 1];
+  if (lastTab) lastTab.after(section);
+  else root.querySelector("footer")?.before(section) ?? root.append(section);
+
+  app.setPosition?.({ height: "auto" });
+}
+
+// ApplicationV1 (Foundry v12): jQuery, original markup.
+function _injectPlanetsideTabV1(app, html, tabHtml) {
   const $html = html instanceof jQuery ? html : $(html);
-  const nav = $html.find('nav.sheet-tabs').first();
+  const nav = $html.find("nav.sheet-tabs").first();
   if (nav.length && !nav.find('[data-tab="planetside"]').length) {
     nav.append('<a class="item" data-tab="planetside"><i class="fas fa-globe"></i> Planetside</a>');
   }
-
   if (!$html.find('section.tab[data-tab="planetside"], div.tab[data-tab="planetside"]').length) {
     const lastTab = $html.find('section.tab[data-group="main"], div.tab[data-group="main"]').last();
     if (lastTab.length) lastTab.after(tabHtml);
-    else $html.find('footer').first().before(tabHtml);
+    else $html.find("footer").first().before(tabHtml);
   }
-
   app.setPosition({ height: "auto" });
-});
+}
 
 function tokenSceneId(tokenDocument) {
   return tokenDocument?.parent?.id ?? tokenDocument?.scene?.id;

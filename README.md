@@ -1,6 +1,6 @@
 # Planetside
 
-A Foundry VTT module (v12.343) that renders a scene's standard 2D battlemap as a 3D globe. The 2D scene continues to run normally and remains the source of truth — walls, lighting, vision, and module integrations like Monk's Active Tiles all keep working against the flat coordinate system. The globe is purely a display and input transformation layer over it.
+A Foundry VTT module (v12 and v13) that renders a scene's standard 2D battlemap as a 3D globe. Both Foundry versions ship PIXI 7, so the canvas/capture pipeline is identical across them; v13 support is mainly the ApplicationV2 Scene Config tab. The 2D scene continues to run normally and remains the source of truth — walls, lighting, vision, and module integrations like Monk's Active Tiles all keep working against the flat coordinate system. The globe is purely a display and input transformation layer over it.
 
 ## Status
 
