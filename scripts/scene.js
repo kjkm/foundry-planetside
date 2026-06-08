@@ -6,6 +6,11 @@ const SPHERE_RADIUS = 1;
 const SPHERE_SEGMENTS = 96;
 const SPHERE_RINGS = 64;
 
+// Cap the renderer pixel ratio: full devicePixelRatio with antialias on a hi-DPI
+// display renders ~4x the fragments for marginal globe quality. ~1.5 is visually
+// indistinguishable in practice; tune by eye on a hi-DPI display (task 4.1).
+const MAX_PIXEL_RATIO = 1.5;
+
 const SUN_DIRECTION = new THREE.Vector3(1, 0.3, 1).normalize();
 const SUN_DISTANCE = 160;
 const SUN_SPRITE_SCALE = 5.5;
@@ -37,10 +42,11 @@ const ATMOSPHERE_INNER = {
 };
 
 export class Scene {
-  constructor({ mercator, imageSrc, hostElement }) {
+  constructor({ mercator, imageSrc, hostElement, markDirty }) {
     this.mercator = mercator;
     this.imageSrc = imageSrc;
     this.host = hostElement;
+    this.markDirty = markDirty;
 
     this.renderer = null;
     this.scene = null;
@@ -59,6 +65,21 @@ export class Scene {
     this.atmosphereInner = null;
     this.lensFlare = null;
     this.stars = null;
+
+    // Scratch reused by surfaceFrame() to avoid per-entry per-frame allocation.
+    // Single synchronous caller; the returned frame is consumed before the next
+    // call, so do NOT retain it across calls.
+    this._sfNormal = new THREE.Vector3();
+    this._sfNorth = new THREE.Vector3();
+    this._sfEast = new THREE.Vector3();
+    this._sfMatrix = new THREE.Matrix4();
+    this._sfQuat = new THREE.Quaternion();
+    this._sfFrame = {
+      east: this._sfEast,
+      north: this._sfNorth,
+      normal: this._sfNormal,
+      quaternion: this._sfQuat
+    };
   }
 
   init() {
@@ -75,7 +96,7 @@ export class Scene {
       alpha: false
     });
     this.renderer.useLegacyLights = true;
-    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, MAX_PIXEL_RATIO));
     this.renderer.setSize(w, h, false);
     this.renderer.setClearColor(0x000000, 1);
 
@@ -354,6 +375,7 @@ export class Scene {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.markDirty?.(); // the view changed — render this frame
   };
 
   raycastSphere(ndcX, ndcY) {
@@ -393,8 +415,8 @@ export class Scene {
     const P = this.mercator.latLonToSpherePoint(lat, lon, 1);
     const Pn = this.mercator.latLonToSpherePoint(lat + EPS, lon, 1);
 
-    const normal = new THREE.Vector3(P.x, P.y, P.z).normalize();
-    let north = new THREE.Vector3(Pn.x - P.x, Pn.y - P.y, Pn.z - P.z);
+    const normal = this._sfNormal.set(P.x, P.y, P.z).normalize();
+    const north = this._sfNorth.set(Pn.x - P.x, Pn.y - P.y, Pn.z - P.z);
     north.addScaledVector(normal, -north.dot(normal)); // project onto tangent plane
     if (north.lengthSq() < 1e-12) {
       // Degenerate near a pole (the body is cropped at ±85°, so this is defensive).
@@ -404,10 +426,10 @@ export class Scene {
     north.normalize();
 
     // ENU is right-handed (E × N = U), so east = north × normal.
-    const east = new THREE.Vector3().crossVectors(north, normal).normalize();
-    const m = new THREE.Matrix4().makeBasis(east, north, normal);
-    const quaternion = new THREE.Quaternion().setFromRotationMatrix(m);
-    return { east, north, normal, quaternion };
+    const east = this._sfEast.crossVectors(north, normal).normalize();
+    this._sfMatrix.makeBasis(east, north, normal);
+    this._sfQuat.setFromRotationMatrix(this._sfMatrix);
+    return this._sfFrame; // shared scratch — consume before the next call
   }
 
   isFacingCamera(point) {

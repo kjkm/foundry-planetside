@@ -2,6 +2,13 @@ const DOUBLE_CLICK_MS = 250;
 // A right gesture that moves less than this (client px) between down and up is a
 // right-CLICK (fire tile trigger); more is a right-DRAG (camera orbit).
 const RIGHT_CLICK_MAX_MOVE = 5;
+// Left long-press → ping. Hold this long (client ms) without moving past the
+// tolerance to fire a ping. We detect this ourselves and call canvas.ping()
+// directly rather than routing through MouseInteractionManager — instant, and no
+// post-ping cooldown (MIM's synthesized-event state never gets stuck). Tunable.
+const PING_HOLD_MS = 350;
+const PING_MOVE_TOLERANCE = 6; // client px; more movement → drag, not a long-press
+const PING_ALERT_STYLE = "alert"; // Foundry ping style for Alt+long-press
 // MATT trigger-method strings for the right button. Confirm against the installed
 // MATT (its config dropdown) — `document.trigger` runs whatever the tile is gated
 // for, so a mismatch simply never fires rather than misbehaving.
@@ -20,6 +27,7 @@ export class InputForwarder {
     this._activePointerId = null;
     this._lastClickByTokenId = new Map();
     this._rightDown = null; // { x, y } client coords of the last right pointer-down
+    this._leftGesture = null; // in-flight empty-sphere left press (click/drag/long-press)
   }
 
   install() {
@@ -38,6 +46,7 @@ export class InputForwarder {
     this.dom.removeEventListener("pointerleave", this._onPointer);
     this.dom.removeEventListener("wheel", this._onWheelPassThrough);
     this.dom.removeEventListener("contextmenu", this._onContextMenu);
+    this._cancelLeftGesture();
   }
 
   _onContextMenu = (e) => { e.preventDefault(); };
@@ -60,6 +69,11 @@ export class InputForwarder {
       return;
     }
 
+    // Leaving the canvas mid-hold abandons any in-flight left gesture (so a
+    // pending long-press timer can't fire after the cursor is gone). Done early,
+    // before the off-sphere early-returns below.
+    if (e.type === "pointerleave") this._cancelLeftGesture();
+
     if (this.orbit.isDragging()) return;
 
     const rect = this.dom.getBoundingClientRect();
@@ -80,16 +94,6 @@ export class InputForwarder {
     // No token under the cursor — empty globe surface.
     if (e.button === 2) return; // right-drag falls through to the orbit camera
 
-    // A plain left-click on empty space deselects, mirroring Foundry's flat-map
-    // behavior. Shift preserves the current selection (multi-select workflow).
-    if (e.type === "pointerdown" && e.button === 0 && !e.shiftKey) {
-      const controlled = canvas.tokens?.controlled ?? [];
-      if (controlled.length) {
-        log(`empty-space left-click → releaseAll (${controlled.length} controlled)`);
-        canvas.tokens.releaseAll();
-      }
-    }
-
     const hit = this.scene3d.raycastSphere(ndcX, ndcY);
     if (!hit) {
       if (e.type === "pointerdown" || e.type === "pointerup") log(`no sphere hit — drop ${e.type}`);
@@ -108,22 +112,115 @@ export class InputForwarder {
     const sceneY = v * dims.sceneHeight + dims.sceneY;
 
     if (e.type === "pointerdown" || e.type === "pointerup") {
-      log(`sphere ${e.type} → dispatch at scene (${sceneX.toFixed(0)},${sceneY.toFixed(0)})`);
+      log(`sphere ${e.type} → at scene (${sceneX.toFixed(0)},${sceneY.toFixed(0)})`);
     }
 
-    // Fire Monk's Active Tiles click / double-click triggers for any tile
-    // covering this point. Located by scene coordinate (not a rendered mesh) so
-    // imageless trigger regions still fire. Additive to the sphere pass-through.
-    // A physical double-click produces two pointerdowns: the first fires "click"
-    // tiles, the second fires "click" again AND "dblclick" tiles.
-    if (e.type === "pointerdown" && e.button === 0) {
-      const isDouble = this._isSphereDoubleClick(sceneX, sceneY);
-      this._fireTileTriggers(sceneX, sceneY, "click");
-      if (isDouble) this._fireTileTriggers(sceneX, sceneY, "dblclick");
-    }
+    // Classify the empty-sphere LEFT press (click / drag / long-press→ping). A
+    // held-still press becomes a direct canvas.ping(); a short click runs the
+    // deselect + tile triggers + synthesized forward on release; a drag forwards
+    // from first movement. Nothing is forwarded to MIM until we know which it is,
+    // so a hold never reaches MIM (no detection lag, no post-ping cooldown).
+    if (this._handleLeftGesture(e, sceneX, sceneY)) return;
 
+    // Not consumed by the gesture machine (e.g. a hover move with no active left
+    // press) — forward as before so 2D hover state still tracks.
     this._dispatchPixiEvent(e, sceneX, sceneY);
   };
+
+  // Left-press gesture state machine over the empty sphere. Returns true if it
+  // consumed the event. See the block comment at the call site for the rationale.
+  _handleLeftGesture(e, sceneX, sceneY) {
+    // Begin a gesture on left-down: record it and start the long-press timer.
+    // Defer ALL side effects (deselect, tile triggers, forwarding) until we know
+    // the gesture's kind.
+    if (e.type === "pointerdown" && e.button === 0) {
+      this._cancelLeftGesture();
+      const g = {
+        downX: e.clientX, downY: e.clientY,
+        sceneX, sceneY,
+        altKey: e.altKey, shiftKey: e.shiftKey,
+        pinged: false, forwarding: false, timer: null
+      };
+      g.timer = setTimeout(() => this._fireGesturePing(g), PING_HOLD_MS);
+      this._leftGesture = g;
+      return true;
+    }
+
+    const g = this._leftGesture;
+    if (!g) return false; // no active left gesture (e.g. a hover move) — not ours
+
+    if (e.type === "pointermove") {
+      if (g.pinged) return true; // already pinged — swallow the rest of this gesture
+      if (!g.forwarding) {
+        const moved = Math.hypot(e.clientX - g.downX, e.clientY - g.downY);
+        if (moved > PING_MOVE_TOLERANCE) {
+          // Movement before the timer → it's a drag, not a long-press. Cancel the
+          // ping, then forward the deferred down (at the original press point)
+          // followed by this move; subsequent moves forward live.
+          this._clearGestureTimer(g);
+          g.forwarding = true;
+          this._dispatchPixiEvent(e, g.sceneX, g.sceneY, "pointerdown");
+          this._dispatchPixiEvent(e, sceneX, sceneY);
+        }
+        return true;
+      }
+      this._dispatchPixiEvent(e, sceneX, sceneY); // live drag move
+      return true;
+    }
+
+    if (e.type === "pointerup" && e.button === 0) {
+      this._clearGestureTimer(g);
+      this._leftGesture = null;
+      if (g.pinged) return true;        // long-press already fired the ping → suppress
+      if (g.forwarding) {               // close out a drag
+        this._dispatchPixiEvent(e, sceneX, sceneY);
+        return true;
+      }
+      // Short click (released before the threshold, no significant movement):
+      // run the empty-click behavior — deselect, tile click/dblclick, forward.
+      if (!g.shiftKey) {
+        const controlled = canvas.tokens?.controlled ?? [];
+        if (controlled.length) {
+          log(`empty-space left-click → releaseAll (${controlled.length} controlled)`);
+          canvas.tokens.releaseAll();
+        }
+      }
+      const isDouble = this._isSphereDoubleClick(g.sceneX, g.sceneY);
+      this._fireTileTriggers(g.sceneX, g.sceneY, "click");
+      if (isDouble) this._fireTileTriggers(g.sceneX, g.sceneY, "dblclick");
+      this._dispatchPixiEvent(e, g.sceneX, g.sceneY, "pointerdown");
+      this._dispatchPixiEvent(e, g.sceneX, g.sceneY);
+      return true;
+    }
+
+    return false;
+  }
+
+  // Long-press elapsed while held still → fire a ping directly. canvas.ping()
+  // draws locally (our drawPing wrap renders the globe marker) and broadcasts to
+  // other clients; it has no self-throttle, so back-to-back pings are immediate.
+  _fireGesturePing(g) {
+    g.timer = null;
+    g.pinged = true;
+    try {
+      const options = g.altKey ? { style: PING_ALERT_STYLE } : {};
+      log(`long-press → canvas.ping at scene (${g.sceneX.toFixed(0)},${g.sceneY.toFixed(0)})${g.altKey ? " [alert]" : ""}`);
+      canvas.ping({ x: g.sceneX, y: g.sceneY }, options);
+    } catch (err) {
+      console.warn("[planetside-input] ping failed", err);
+    }
+  }
+
+  _clearGestureTimer(g) {
+    if (g?.timer) { clearTimeout(g.timer); g.timer = null; }
+  }
+
+  _cancelLeftGesture() {
+    if (this._leftGesture) {
+      this._clearGestureTimer(this._leftGesture);
+      this._leftGesture = null;
+    }
+  }
 
   // Tiles whose footprint rectangle contains the scene point. Axis-aligned
   // (tile rotation ignored for v1).
@@ -328,29 +425,34 @@ export class InputForwarder {
     return { x: p.x, y: p.y };
   }
 
-  _dispatchPixiEvent(domEvent, sceneX, sceneY) {
+  // typeOverride lets callers synthesize an event of a different type than the
+  // source DOM event — used to forward a deferred "pointerdown" reconstructed at
+  // gesture-resolution time (when only the "pointerup" DOM event is in hand).
+  _dispatchPixiEvent(domEvent, sceneX, sceneY, typeOverride) {
     const boundary = canvas.app?.renderer?.events?.rootBoundary;
     if (!boundary) {
       log("no rootBoundary — cannot dispatch");
       return;
     }
 
-    if (domEvent.type === "pointerleave") {
+    const type = typeOverride ?? domEvent.type;
+
+    if (type === "pointerleave") {
       this._activePointerId = null;
       return;
     }
 
     const g = this._sceneToGlobal(sceneX, sceneY);
 
-    if (domEvent.type === "pointerdown" || domEvent.type === "pointerup") {
+    if (type === "pointerdown" || type === "pointerup") {
       const hitTarget = boundary.hitTest(g.x, g.y);
       const targetName = hitTarget?.constructor?.name ?? "null";
       const isToken = hitTarget?.constructor?.name === "Token" || hitTarget?.parent?.constructor?.name === "Token";
-      log(`pixi dispatch ${domEvent.type} at scene(${sceneX.toFixed(0)},${sceneY.toFixed(0)}) global(${g.x.toFixed(0)},${g.y.toFixed(0)}) → hitTest=${targetName} isToken=${isToken}`);
+      log(`pixi dispatch ${type} at scene(${sceneX.toFixed(0)},${sceneY.toFixed(0)}) global(${g.x.toFixed(0)},${g.y.toFixed(0)}) → hitTest=${targetName} isToken=${isToken}`);
     }
 
-    if (domEvent.type === "pointerdown") this._activePointerId = domEvent.pointerId;
-    if (domEvent.type === "pointerup" && this._activePointerId === domEvent.pointerId) {
+    if (type === "pointerdown") this._activePointerId = domEvent.pointerId;
+    if (type === "pointerup" && this._activePointerId === domEvent.pointerId) {
       this._activePointerId = null;
     }
 
@@ -370,7 +472,7 @@ export class InputForwarder {
     event.metaKey = domEvent.metaKey ?? false;
     event.nativeEvent = domEvent;
     event.originalEvent = domEvent;
-    event.type = domEvent.type;
+    event.type = type;
 
     boundary.mapEvent(event);
   }

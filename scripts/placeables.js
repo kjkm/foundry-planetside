@@ -28,10 +28,11 @@ const MAX_CAPTURES_PER_FRAME = 4;
  * geometry accessors, decorations, and any per-type extras (e.g. DOM nameplates).
  */
 export class PlaceableLayer {
-  constructor({ scene3d, mercator, hostElement }) {
+  constructor({ scene3d, mercator, hostElement, markDirty }) {
     this.scene3d = scene3d;
     this.mercator = mercator;
     this.host = hostElement;
+    this.markDirty = markDirty;
     this.entries = new Map();
   }
 
@@ -274,6 +275,7 @@ export class PlaceableLayer {
       entry.offSouthG = (anchorY - (region.y + region.height / 2)) * g; // +south
 
       entry.captured = true;
+      this.markDirty?.(); // a new texture landed — the globe must re-render
     } catch (err) {
       console.warn("[planetside] placeable capture failed:", err);
     } finally {
@@ -322,11 +324,11 @@ export class PlaceableLayer {
 
     // Place the plane so the placeable CENTER (not the texture center) lands on P,
     // then orient it flat with a consistent tangent-frame roll. Rotation is baked
-    // into the captured image, so no rotateZ here.
-    const pos = new THREE.Vector3(P.x, P.y, P.z)
+    // into the captured image, so no rotateZ here. Mutate sprite.position in place
+    // (no per-frame Vector3 alloc); frame.east/north are scratch from surfaceFrame.
+    sprite.position.set(P.x, P.y, P.z)
       .addScaledVector(frame.east, -entry.offEastG)
       .addScaledVector(frame.north, entry.offSouthG);
-    sprite.position.copy(pos);
     sprite.quaternion.copy(frame.quaternion);
     sprite.scale.set(entry.planeW, entry.planeH, 1);
 

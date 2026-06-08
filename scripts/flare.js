@@ -15,6 +15,7 @@ export class LensFlare {
     this.sunNDC = new THREE.Vector3();
     this._d = new THREE.Vector3();
     this._f = new THREE.Vector3();
+    this._anyVisible = false; // set by update(); gates the second render pass
   }
 
   setSunWorldPosition(pos) {
@@ -94,6 +95,7 @@ export class LensFlare {
       1.0,
       (1.2 - Math.max(Math.abs(this.sunNDC.x), Math.abs(this.sunNDC.y))) / 0.4
     );
+    this._anyVisible = !hide && edgeFade > 0;
 
     for (const e of this.elements) {
       if (hide) {
@@ -112,6 +114,7 @@ export class LensFlare {
   }
 
   render() {
+    if (!this._anyVisible) return; // nothing to draw — skip the second WebGL pass
     const autoClear = this.renderer.autoClear;
     this.renderer.autoClear = false;
     this.renderer.render(this.scene, this.camera);

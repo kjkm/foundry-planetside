@@ -18,9 +18,10 @@ const FOCUS_DURATION_MS = 800;
 const FOCUS_EASE_POWER = 5;
 
 export class OrbitCamera {
-  constructor({ camera, domElement }) {
+  constructor({ camera, domElement, markDirty }) {
     this.camera = camera;
     this.dom = domElement;
+    this.markDirty = markDirty;
 
     this.azimuth = 0;
     this.elevation = 0;
@@ -56,6 +57,9 @@ export class OrbitCamera {
     this.camera.position.set(x, y, z);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(0, 0, 0);
+    // Single choke point for every orientation change (drag, wheel, tween step) —
+    // signals the controller to render this frame.
+    this.markDirty?.();
   }
 
   _onPointerDown = (e) => {
