@@ -31,6 +31,16 @@ export class Planetside {
     this.tokenLayer = null;
     this.tileLayer = null;
     this._tickerCb = null;
+    this._dirty = true;               // render-on-demand gate (D1)
+    this._foundryRenderRemoved = false; // Foundry 2D render suspended? (D3)
+  }
+
+  // Mark the globe as needing a re-render this frame. Called by every motion
+  // source (camera apply, placeable capture, resize); _frame() renders only when
+  // set, then clears it. Pings are NOT a dirty source — their tracking rides on
+  // the camera source and their pulse is compositor-driven (see overlays).
+  markDirty() {
+    this._dirty = true;
   }
 
   activate() {
@@ -47,30 +57,36 @@ export class Planetside {
     }
     document.body.classList.add("planetside-active");
 
+    const markDirty = () => this.markDirty();
+
     this.mercator = new Mercator({ maxLatitudeDeg: 85 });
 
     this.scene3d = new Scene({
       mercator: this.mercator,
       imageSrc,
-      hostElement: this.host
+      hostElement: this.host,
+      markDirty
     });
     this.scene3d.init();
 
     this.orbit = new OrbitCamera({
       camera: this.scene3d.camera,
-      domElement: this.scene3d.canvas
+      domElement: this.scene3d.canvas,
+      markDirty
     });
 
     this.tokenLayer = new TokenLayer({
       scene3d: this.scene3d,
       mercator: this.mercator,
-      hostElement: this.host
+      hostElement: this.host,
+      markDirty
     });
 
     this.tileLayer = new TileLayer({
       scene3d: this.scene3d,
       mercator: this.mercator,
-      hostElement: this.host
+      hostElement: this.host,
+      markDirty
     });
 
     this.input = new InputForwarder({
@@ -83,6 +99,10 @@ export class Planetside {
     this.input.install();
     this.orbit.install();
 
+    // OverlayReanchor is intentionally NOT given markDirty: it only repositions
+    // DOM overlays (HUD, bubbles, pings), which it does every frame regardless of
+    // the render gate, projecting with the current camera matrices. Ping pulses
+    // run on the compositor, so the globe stays idle while a ping is active.
     this.overlays = new OverlayReanchor({
       scene3d: this.scene3d,
       mercator: this.mercator,
@@ -113,10 +133,42 @@ export class Planetside {
       elevEasePower: INTRO_ELEV_EASE_POWER
     });
 
+    this._dirty = true; // force the first frame to render
     this._tickerCb = () => this._frame();
     canvas.app.ticker.add(this._tickerCb);
 
+    // Stop Foundry painting its (now hidden) 2D canvas every tick (D3).
+    this._suspendFoundryRender();
+
     this.active = true;
+  }
+
+  // Remove ONLY Foundry's per-frame 2D render from the shared ticker, leaving the
+  // ticker running so animation logic, timers, and hooks (incl. refreshToken)
+  // still fire. PIXI's Application registers `app.render` on the ticker at
+  // UPDATE_PRIORITY.LOW; removing that callback is the surgical, reversible lever.
+  // (Candidate mechanism — confirmed by smoke test; fallback is ticker.maxFPS.)
+  _suspendFoundryRender() {
+    const app = canvas?.app;
+    if (!app?.ticker || this._foundryRenderRemoved) return;
+    try {
+      app.ticker.remove(app.render, app);
+      this._foundryRenderRemoved = true;
+    } catch (err) {
+      console.warn("[planetside] could not suspend Foundry render", err);
+    }
+  }
+
+  _restoreFoundryRender() {
+    const app = canvas?.app;
+    if (!app?.ticker || !this._foundryRenderRemoved) return;
+    try {
+      app.ticker.add(app.render, app, PIXI.UPDATE_PRIORITY.LOW);
+      app.render(); // paint once so the flat canvas is correct before it is shown
+    } catch (err) {
+      console.warn("[planetside] could not restore Foundry render", err);
+    }
+    this._foundryRenderRemoved = false;
   }
 
   // Map the scene's default view (scene.initial = { x, y, scale }) to a camera
@@ -166,6 +218,8 @@ export class Planetside {
       canvas.app.ticker.remove(this._tickerCb);
       this._tickerCb = null;
     }
+    // Restore Foundry's 2D render (and paint one frame) before #board is unhidden.
+    this._restoreFoundryRender();
     this.tokenLayer?.destroy();
     this.tileLayer?.destroy();
     this.titleOverlay?.destroy();
@@ -189,10 +243,18 @@ export class Planetside {
 
   _frame() {
     if (!this.active) return;
+    // Run every frame so dirty sources are detected (camera tween step, a landed
+    // capture, etc.); these set _dirty when something actually changed.
     this.orbit?.tick();
     this.tokenLayer?.update();
     this.tileLayer?.update();
-    this.scene3d.render();
+    // Render only on dirty frames. Render BEFORE overlays so DOM reanchoring uses
+    // the camera matrices updated by this render; when idle we skip the WebGL
+    // passes entirely and the camera matrices are still current (it didn't move).
+    if (this._dirty) {
+      this.scene3d.render();
+      this._dirty = false;
+    }
     this.overlays.update();
   }
 }

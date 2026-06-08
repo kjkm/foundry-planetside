@@ -62,7 +62,8 @@ Known limitations: token-enter/hover triggers are not forwarded (enter already f
 
 ## How it works (briefly)
 
-- Foundry renders the active scene to its normal PIXI canvas. Planetside captures that canvas into a `PIXI.RenderTexture` each frame the scene is dirty.
+- The globe body is the scene's background image, loaded directly onto the sphere; tokens and tiles are captured per-object from Foundry's live display only when they change. While Planetside is active, Foundry's own per-frame 2D canvas render is suspended (the `#board` is hidden and contributes nothing visible) — its ticker keeps running, so animation logic, timers, and hooks like `refreshToken` still fire and propagate to the globe.
+- The globe renders **on demand**: it re-draws only on frames where something changed (camera moved, a placeable was re-captured, or a resize). When nothing is moving it does no WebGL work, so an idle globe costs about what an idle flat map does. Ping pulses animate on the compositor and keep going while the globe sits idle.
 - A Three.js scene displays a sphere mesh in the visible canvas region. The captured texture is wrapped onto the sphere using Mercator UV mapping, cropped at ±85° latitude.
 - The polar caps above and below the cropped Mercator rectangle are filled with the average color of the rectangle's perimeter.
 - A constrained orbit camera circles the sphere with world Y locked as up and the sphere center as the look-at target. Elevation is clamped strictly short of ±90°.
@@ -106,7 +107,7 @@ Other DOM overlays — both Foundry's and from other modules — may appear in t
 
 ### Performance
 
-Capture currently uses a CPU-side pixel readback from PIXI to Three.js (GPU → CPU → GPU each dirty frame). It works; on lower-end hardware or very large maps it may be slow. A shared-WebGL-context optimization is a known follow-up but is not in v1.
+The globe renders on demand (only when the view changed) and suspends Foundry's redundant 2D render while active, so an idle globe is roughly at parity with an idle flat map. Placeable capture still uses a CPU-side pixel readback from PIXI to Three.js (GPU → CPU → GPU), but only when a placeable actually changes — it is change-driven, not per-frame. On lower-end hardware or very large maps a capture-heavy moment (many tokens moving at once) may still be slow; a shared-WebGL-context zero-copy capture is a known follow-up but is not in v1.
 
 ## Repository layout
 
