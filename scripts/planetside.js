@@ -85,7 +85,8 @@ export class Planetside {
 
     this.overlays = new OverlayReanchor({
       scene3d: this.scene3d,
-      mercator: this.mercator
+      mercator: this.mercator,
+      hostElement: this.host
     });
     this.overlays.install();
 
