@@ -90,8 +90,82 @@ export class InputForwarder {
     if (e.type === "pointerdown" || e.type === "pointerup") {
       log(`sphere ${e.type} → dispatch at scene (${sceneX.toFixed(0)},${sceneY.toFixed(0)})`);
     }
+
+    // Fire Monk's Active Tiles click / double-click triggers for any tile
+    // covering this point. Located by scene coordinate (not a rendered mesh) so
+    // imageless trigger regions still fire. Additive to the sphere pass-through.
+    // A physical double-click produces two pointerdowns: the first fires "click"
+    // tiles, the second fires "click" again AND "dblclick" tiles.
+    if (e.type === "pointerdown" && e.button === 0) {
+      const isDouble = this._isSphereDoubleClick(sceneX, sceneY);
+      this._fireTileTriggers(sceneX, sceneY, "click");
+      if (isDouble) this._fireTileTriggers(sceneX, sceneY, "dblclick");
+    }
+
     this._dispatchPixiEvent(e, sceneX, sceneY);
   };
+
+  // Tiles whose footprint rectangle contains the scene point. Axis-aligned
+  // (tile rotation ignored for v1).
+  _tilesAtScenePoint(sceneX, sceneY) {
+    const tiles = canvas.tiles?.placeables ?? [];
+    return tiles.filter((tile) => {
+      const doc = tile.document ?? tile;
+      const x = doc.x ?? 0;
+      const y = doc.y ?? 0;
+      const w = doc.width ?? 0;
+      const h = doc.height ?? 0;
+      return sceneX >= x && sceneX <= x + w && sceneY >= y && sceneY <= y + h;
+    });
+  }
+
+  // True when the tile has an active Monk's Active Tiles config whose trigger
+  // list includes `method`. We gate here because document.trigger() runs a
+  // tile's actions regardless of method.
+  _tileHasTrigger(tile, method) {
+    const flags = (tile.document ?? tile).flags?.["monks-active-tiles"];
+    if (!flags || flags.active === false) return false;
+    const t = flags.trigger;
+    const types = Array.isArray(t) ? t : (t ? [t] : []);
+    return types.includes(method);
+  }
+
+  _fireTileTriggers(sceneX, sceneY, method) {
+    for (const tile of this._tilesAtScenePoint(sceneX, sceneY)) {
+      if (this._tileHasTrigger(tile, method)) this._fireTileTrigger(tile, sceneX, sceneY, method);
+    }
+  }
+
+  // Fire the tile's MATT actions directly via its document API — no PIXI/MIM
+  // event synthesis needed. Best-effort: a MATT error must not break input.
+  _fireTileTrigger(tile, sceneX, sceneY, method) {
+    const doc = tile.document ?? tile;
+    if (typeof doc.trigger !== "function") return;
+    const tokens = canvas.tokens?.controlled?.map((t) => t.document) ?? [];
+    log(`tile ${method} trigger → ${tile.id}`);
+    try {
+      doc.trigger({
+        method,
+        pt: { x: sceneX, y: sceneY },
+        tokens,
+        userId: game.user.id
+      });
+    } catch (err) {
+      console.warn("[planetside-input] tile trigger failed", tile?.id, err);
+    }
+  }
+
+  // Detect a double-click on the globe surface: a second left-down close in time
+  // and scene-space to the previous one (threshold ~ one grid cell).
+  _isSphereDoubleClick(sceneX, sceneY) {
+    const now = performance.now();
+    const last = this._lastSphereClick;
+    this._lastSphereClick = { t: now, x: sceneX, y: sceneY };
+    if (!last) return false;
+    const dist = Math.hypot(sceneX - last.x, sceneY - last.y);
+    const threshold = canvas.dimensions?.size ?? 50;
+    return (now - last.t) < DOUBLE_CLICK_MS && dist < threshold;
+  }
 
   _raycastTokenSprites(ndcX, ndcY) {
     const entries = this.tokenLayer?.entries;
