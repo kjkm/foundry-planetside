@@ -71,6 +71,8 @@ Known limitations: token-enter/hover triggers are not forwarded (enter already f
 
 ## Controls
 
+When the globe opens, it plays a brief establishing shot — starting wide and side-on, slowly spinning around the vertical axis (like the globe turning) and zooming in, then tilting up at the end to settle on the scene's configured default view (`scene.initial`): the default-view point becomes the camera's center and the default zoom maps to the orbit radius. Scenes with no default view set settle centered on the scene. The settle runs through a general camera `focus()` primitive (eased move to a scene location) that's intended to also back future camera synchronization — e.g. a GM "ping"/pull that rotates everyone's globe to a location — though that sync is not yet implemented.
+
 - **Left-click a token**: select it (double-click opens its sheet; right-click opens its HUD).
 - **Left-click empty globe**: deselect.
 - **Right-click drag (off any token)**: orbit camera (azimuth + elevation).
