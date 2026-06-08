@@ -68,6 +68,7 @@ Known limitations: token-enter/hover triggers are not forwarded (enter already f
 - A constrained orbit camera circles the sphere with world Y locked as up and the sphere center as the look-at target. Elevation is clamped strictly short of ±90°.
 - Pointer events on the Three.js canvas first raycast the token meshes. A hit forwards the interaction semantically by calling Foundry's real token handlers (`control`, `releaseAll`, the actor sheet, the Token HUD). A miss is raycast against the sphere, inverse-Mercator-projected back to 2D scene coordinates, and dispatched as a synthesized PIXI federated event on the offscreen PIXI stage.
 - A small set of Foundry DOM overlays (token HUD, chat bubbles, tooltips) are reanchored each frame to the screen position where their 2D scene coordinate projects on the sphere.
+- Canvas **pings** appear on the globe: the per-client ping render (`ControlsLayer#drawPing`) is intercepted (the flat-canvas ping still runs) and a transient marker, colored by the pinging user, is drawn at the ping's projected sphere position — auto-expiring and hidden when the location is on the far hemisphere. (Mirroring a GM "pull" ping by rotating the camera to it is a planned follow-up, reusing the camera `focus()` primitive.)
 
 ## Controls
 
@@ -99,6 +100,7 @@ The following core Foundry overlays are reanchored to the projected sphere posit
 - Token HUD (button ring around a selected token)
 - Chat bubbles
 - Tooltips (when an anchor coordinate is attached)
+- Pings (transient marker at the pinged location, in the pinging user's color; hidden on the far hemisphere)
 
 Other DOM overlays — both Foundry's and from other modules — may appear in their original 2D position, disconnected from where their target visually lands on the sphere. No general-purpose third-party module compatibility is committed to in v1.
 

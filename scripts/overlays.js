@@ -6,11 +6,17 @@ const OVERLAY_SELECTORS = [
   "#measurement"
 ];
 
+const PING_DURATION_MS = 2000; // fallback if CONFIG.Canvas.pings.duration is unset
+
 export class OverlayReanchor {
-  constructor({ scene3d, mercator }) {
+  constructor({ scene3d, mercator, hostElement }) {
     this.scene3d = scene3d;
     this.mercator = mercator;
+    this.host = hostElement;
     this._originalStyles = new Map();
+    this._pings = [];           // active globe ping markers
+    this._controls = null;      // ControlsLayer whose drawPing we wrapped
+    this._origDrawPing = null;  // original drawPing to restore
   }
 
   install() {
@@ -25,6 +31,7 @@ export class OverlayReanchor {
         transform: el.style.transform
       });
     }
+    this._wrapDrawPing();
   }
 
   uninstall() {
@@ -36,6 +43,68 @@ export class OverlayReanchor {
       el.style.transform = original.transform;
     }
     this._originalStyles.clear();
+
+    if (this._controls && this._origDrawPing) this._controls.drawPing = this._origDrawPing;
+    this._controls = null;
+    this._origDrawPing = null;
+    for (const p of this._pings) p.el.parentNode?.removeChild(p.el);
+    this._pings = [];
+  }
+
+  // Render Foundry pings on the globe. Wrap the per-client ping render point
+  // (ControlsLayer#drawPing) so we see every ping (local and broadcast); call the
+  // original through so the flat-canvas ping is unaffected. canvas.controls can be
+  // rebuilt on a redraw, so this is (re)applied on each install and restored on
+  // uninstall.
+  _wrapDrawPing() {
+    const controls = canvas.controls;
+    if (!controls || typeof controls.drawPing !== "function") return;
+    if (controls.drawPing._planetsidePatched) return;
+
+    const orig = controls.drawPing;
+    const self = this;
+    const wrapped = function (position, options = {}) {
+      try {
+        self.spawnPing(position?.x, position?.y, options);
+      } catch (err) {
+        console.warn("[planetside] ping render failed", err);
+      }
+      return orig.call(this, position, options);
+    };
+    wrapped._planetsidePatched = true;
+    this._controls = controls;
+    this._origDrawPing = orig;
+    controls.drawPing = wrapped;
+  }
+
+  // Create a transient marker for a ping at a scene coordinate. It is positioned
+  // (and far-side-hidden) each frame by update() via the shared _reanchorElement,
+  // and removed automatically when it expires.
+  spawnPing(sceneX, sceneY, options = {}) {
+    if (!this.host || sceneX == null || sceneY == null) return;
+    const c = options?.user?.color;
+    const color = (c && (c.css ?? c.toString())) || "#ff6400";
+    const el = document.createElement("div");
+    el.className = "planetside-ping";
+    el.style.setProperty("--ping-color", color);
+    el.style.display = "none"; // placed on the next update()
+    this.host.appendChild(el);
+    const duration = CONFIG?.Canvas?.pings?.duration ?? PING_DURATION_MS;
+    this._pings.push({ el, sceneX, sceneY, expiresAt: performance.now() + duration });
+  }
+
+  _updatePings() {
+    if (this._pings.length === 0) return;
+    const now = performance.now();
+    for (let i = this._pings.length - 1; i >= 0; i--) {
+      const p = this._pings[i];
+      if (now >= p.expiresAt) {
+        p.el.parentNode?.removeChild(p.el);
+        this._pings.splice(i, 1);
+        continue;
+      }
+      this._reanchorElement(p.el, { x: p.sceneX, y: p.sceneY });
+    }
   }
 
   sceneToScreen(sceneX, sceneY) {
@@ -98,5 +167,7 @@ export class OverlayReanchor {
         y: parseFloat(tooltip.dataset.anchorY)
       });
     }
+
+    this._updatePings();
   }
 }

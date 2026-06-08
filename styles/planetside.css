@@ -28,3 +28,40 @@ body.planetside-active #hud {
   top: 0 !important;
   left: 0 !important;
 }
+
+/* Globe ping marker: an expanding-ring pulse in the pinging user's colour
+   (--ping-color), anchored at the ping's projected sphere position by
+   OverlayReanchor. The element is a zero-size anchor point; the rings are drawn
+   by its pseudo-elements so the translate(-50%,-50%) from _reanchorElement keeps
+   it centred. */
+.planetside-ping {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 15;
+  --ping-color: #ff6400;
+}
+.planetside-ping::before,
+.planetside-ping::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 3px solid var(--ping-color);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--ping-color);
+  opacity: 0;
+  animation: planetside-ping-pulse 1.3s ease-out infinite;
+}
+.planetside-ping::after {
+  animation-delay: 0.45s;
+}
+@keyframes planetside-ping-pulse {
+  0% { transform: scale(0.3); opacity: 0.9; }
+  70% { opacity: 0.25; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
