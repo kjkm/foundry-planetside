@@ -73,12 +73,15 @@ Known limitations: token-enter/hover triggers are not forwarded (enter already f
 
 ## Controls
 
-When the globe opens, it plays a brief establishing shot — starting wide and side-on, slowly spinning around the vertical axis (like the globe turning) and zooming in, then tilting up at the end to settle on the scene's configured default view (`scene.initial`): the default-view point becomes the camera's center and the default zoom maps to the orbit radius. Scenes with no default view set settle centered on the scene. The settle runs through a general camera `focus()` primitive (eased move to a scene location) that's intended to also back future camera synchronization — e.g. a GM "ping"/pull that rotates everyone's globe to a location — though that sync is not yet implemented.
+When the globe opens, it plays a brief establishing shot — starting wide and side-on, slowly spinning around the vertical axis (like the globe turning) and zooming in, then tilting up at the end to settle on the scene's configured default view (`scene.initial`): the default-view point becomes the camera's center and the default zoom maps to the orbit radius. Scenes with no default view set settle centered on the scene. The settle runs through a general camera `focus()` primitive (eased move to a scene location) that also backs the GM pull (below).
 
 - **Left-click a token**: select it (double-click opens its sheet; right-click opens its HUD).
 - **Left-click empty globe**: deselect.
 - **Right-click drag (off any token)**: orbit camera (azimuth + elevation).
 - **Scroll wheel**: zoom in/out (radius).
+- **Long-press empty globe**: drop a ping at that location (instant, fired directly via `canvas.ping`; no cooldown).
+  - **Alt + long-press**: an **alert** ping — a distinct urgent (red) marker on the globe.
+  - **Shift + long-press (GM only)**: a **pull** — every player's globe (and the GM's) eases to the pinged location via the `focus()` primitive. A non-GM Shift+long-press is just a normal ping.
 - **Left-click on empty sphere**: forwarded to the 2D scene at the corresponding coordinate (sphere raycast → inverse Mercator → synthesized PIXI event). Note that flat-scene interactions which depend on Foundry's hover→click state machine (rulers, wall placement, etc.) are subject to the same `MouseInteractionManager` limitation described under "Token layer" and may not respond from the globe.
 
 ## v1 limitations

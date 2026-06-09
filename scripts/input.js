@@ -18,11 +18,12 @@ const DEBUG = false;
 const log = (...args) => { if (DEBUG) console.log("[planetside-input]", ...args); };
 
 export class InputForwarder {
-  constructor({ scene3d, mercator, orbitCamera, tokenLayer }) {
+  constructor({ scene3d, mercator, orbitCamera, tokenLayer, onGmPull }) {
     this.scene3d = scene3d;
     this.mercator = mercator;
     this.orbit = orbitCamera;
     this.tokenLayer = tokenLayer;
+    this.onGmPull = onGmPull; // (sceneX, sceneY) => fire a GM pull (controller-owned)
     this.dom = scene3d.canvas;
     this._activePointerId = null;
     this._lastClickByTokenId = new Map();
@@ -203,9 +204,22 @@ export class InputForwarder {
     g.timer = null;
     g.pinged = true;
     try {
-      const options = g.altKey ? { style: PING_ALERT_STYLE } : {};
-      log(`long-press → canvas.ping at scene (${g.sceneX.toFixed(0)},${g.sceneY.toFixed(0)})${g.altKey ? " [alert]" : ""}`);
-      canvas.ping({ x: g.sceneX, y: g.sceneY }, options);
+      const origin = { x: g.sceneX, y: g.sceneY };
+      // Modifier → ping type, with Shift/pull taking precedence over Alt/alert:
+      //  - Shift held by a GM → pull (controller shows a marker for everyone,
+      //    broadcasts it, and focuses every client's globe on the location).
+      //  - Alt → alert ping (visually distinct marker).
+      //  - plain, or Shift held by a non-GM → normal ping.
+      if (g.shiftKey && game.user?.isGM) {
+        log(`long-press → GM pull at scene (${origin.x.toFixed(0)},${origin.y.toFixed(0)})`);
+        this.onGmPull?.(origin.x, origin.y);
+      } else if (g.altKey) {
+        log(`long-press → alert ping at scene (${origin.x.toFixed(0)},${origin.y.toFixed(0)})`);
+        canvas.ping(origin, { style: PING_ALERT_STYLE });
+      } else {
+        log(`long-press → ping at scene (${origin.x.toFixed(0)},${origin.y.toFixed(0)})`);
+        canvas.ping(origin);
+      }
     } catch (err) {
       console.warn("[planetside-input] ping failed", err);
     }
