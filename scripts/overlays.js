@@ -9,9 +9,9 @@ const OVERLAY_SELECTORS = [
 const PING_DURATION_MS = 2000; // fallback if CONFIG.Canvas.pings.duration is unset
 
 export class OverlayReanchor {
-  constructor({ scene3d, mercator, hostElement }) {
+  constructor({ scene3d, projection, hostElement }) {
     this.scene3d = scene3d;
-    this.mercator = mercator;
+    this.projection = projection;
     this.host = hostElement;
     this._originalStyles = new Map();
     this._pings = [];           // active globe ping markers
@@ -120,10 +120,10 @@ export class OverlayReanchor {
     const dims = canvas.dimensions;
     const u = (sceneX - dims.sceneX) / dims.sceneWidth;
     const v = (sceneY - dims.sceneY) / dims.sceneHeight;
-    const { lat, lon } = this.mercator.uvToLatLon(u, v);
-    if (!this.mercator.isLatitudeOnBody(lat)) return null;
+    const { lat, lon } = this.projection.uvToLatLon(u, v);
+    if (!this.projection.isLatitudeOnBody(lat)) return null;
 
-    const world = this.mercator.latLonToSpherePoint(lat, lon, 1);
+    const world = this.projection.latLonToSpherePoint(lat, lon, 1);
     if (!this.scene3d.isFacingCamera(world)) return null;
     return this.scene3d.projectWorldToScreen(world);
   }

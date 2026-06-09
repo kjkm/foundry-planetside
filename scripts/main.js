@@ -1,5 +1,6 @@
 import { Planetside } from "./planetside.js";
 import { TITLE_FONT_OPTIONS, TITLE_CORNER_OPTIONS, readTitleFlags } from "./title.js";
+import { PROJECTION_OPTIONS, readProjectionFlags } from "./projection.js";
 
 const MODULE_ID = "planetside";
 const TAB_TEMPLATE = `modules/${MODULE_ID}/templates/scene-config-tab.hbs`;
@@ -56,8 +57,10 @@ Hooks.on("renderSceneConfig", async (app, html) => {
   const tabHtml = await renderTpl(TAB_TEMPLATE, {
     enabled: isSceneEnabled(scene),
     ...readTitleFlags(scene),
+    ...readProjectionFlags(scene),
     fontOptions: TITLE_FONT_OPTIONS,
-    cornerOptions: TITLE_CORNER_OPTIONS
+    cornerOptions: TITLE_CORNER_OPTIONS,
+    projectionOptions: PROJECTION_OPTIONS
   });
 
   // v13 SceneConfig is ApplicationV2 — the hook passes a native HTMLElement and
@@ -183,6 +186,7 @@ Hooks.on("updateScene", (scene, changes) => {
   if (isSceneEnabled(scene)) {
     controller.activate();
     controller.refreshTitle();
+    controller.applyProjection();
   } else {
     controller.deactivate();
   }

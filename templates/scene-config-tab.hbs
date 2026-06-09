@@ -7,6 +7,23 @@
 
     <hr>
 
+    <h3>Projection</h3>
+    <p class="notes">How the flat map wraps onto the globe. <b>Equirectangular</b> suits most maps (a flat image); <b>Mercator</b> matches a true Mercator-projected map; <b>Equal-area</b> keeps relative sizes. <b>Latitude span</b> sets how far toward the poles the map reaches — 90° covers the whole sphere; less leaves polar caps.</p>
+
+    <div class="form-group">
+        <label>Projection</label>
+        <select name="flags.planetside.projection">
+            {{selectOptions projectionOptions selected=projection}}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Latitude span (°)</label>
+        <input type="number" name="flags.planetside.latitudeSpan" value="{{latitudeSpan}}" min="10" max="90" step="1">
+    </div>
+
+    <hr>
+
     <h3>Title overlay</h3>
     <p class="notes">A title and optional subtitle rendered in a corner of the canvas while Planetside is active. Leave both empty to hide.</p>
 

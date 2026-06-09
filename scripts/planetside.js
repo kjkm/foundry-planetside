@@ -1,4 +1,4 @@
-import { Mercator } from "./mercator.js";
+import { Projection, readProjectionFlags } from "./projection.js";
 import { Scene } from "./scene.js";
 import { OrbitCamera } from "./camera.js";
 import { InputForwarder } from "./input.js";
@@ -30,7 +30,7 @@ export class Planetside {
   constructor() {
     this.active = false;
     this.host = null;
-    this.mercator = null;
+    this.projection = null;
     this.scene3d = null;
     this.orbit = null;
     this.input = null;
@@ -68,10 +68,14 @@ export class Planetside {
 
     const markDirty = () => this.markDirty();
 
-    this.mercator = new Mercator({ maxLatitudeDeg: 85 });
+    const projFlags = readProjectionFlags(canvas.scene);
+    this.projection = new Projection({
+      curve: projFlags.projection,
+      latitudeSpanDeg: projFlags.latitudeSpan
+    });
 
     this.scene3d = new Scene({
-      mercator: this.mercator,
+      projection: this.projection,
       imageSrc,
       hostElement: this.host,
       markDirty
@@ -86,21 +90,21 @@ export class Planetside {
 
     this.tokenLayer = new TokenLayer({
       scene3d: this.scene3d,
-      mercator: this.mercator,
+      projection: this.projection,
       hostElement: this.host,
       markDirty
     });
 
     this.tileLayer = new TileLayer({
       scene3d: this.scene3d,
-      mercator: this.mercator,
+      projection: this.projection,
       hostElement: this.host,
       markDirty
     });
 
     this.input = new InputForwarder({
       scene3d: this.scene3d,
-      mercator: this.mercator,
+      projection: this.projection,
       orbitCamera: this.orbit,
       tokenLayer: this.tokenLayer,
       onGmPull: (x, y) => this.firePull(x, y)
@@ -115,7 +119,7 @@ export class Planetside {
     // run on the compositor, so the globe stays idle while a ping is active.
     this.overlays = new OverlayReanchor({
       scene3d: this.scene3d,
-      mercator: this.mercator,
+      projection: this.projection,
       hostElement: this.host
     });
     this.overlays.install();
@@ -213,7 +217,7 @@ export class Planetside {
 
   // Map the scene's default view (scene.initial = { x, y, scale }) to a camera
   // target. Position is exact (azimuth = lon, elevation = lat — the orbit camera
-  // shares the Mercator sphere-point parameterization); zoom is a heuristic. When
+  // shares the projection's sphere-point parameterization); zoom is a heuristic. When
   // x/y are null (no default view set — the common case) we centre on the scene.
   _defaultViewTarget() {
     const init = canvas.scene?.initial ?? {};
@@ -230,7 +234,7 @@ export class Planetside {
     if (sceneX != null && sceneY != null && dims) {
       const u = (sceneX - dims.sceneX) / dims.sceneWidth;
       const v = (sceneY - dims.sceneY) / dims.sceneHeight;
-      const { lat, lon } = this.mercator.uvToLatLon(u, v);
+      const { lat, lon } = this.projection.uvToLatLon(u, v);
       azimuth = lon;
       elevation = lat;
     }
@@ -257,6 +261,20 @@ export class Planetside {
   refreshTitle() {
     if (!this.active || !this.titleOverlay) return;
     this.titleOverlay.update(readTitleFlags(canvas.scene));
+  }
+
+  // Re-read the projection/latitude-span flags and rebuild the globe body in
+  // place (camera/texture preserved). The single Projection instance is mutated,
+  // so all consumers (input, overlays, placeables, scene) follow automatically.
+  applyProjection() {
+    if (!this.active || !this.projection) return;
+    const projFlags = readProjectionFlags(canvas.scene);
+    this.projection.configure({
+      curve: projFlags.projection,
+      latitudeSpanDeg: projFlags.latitudeSpan
+    });
+    this.scene3d?.rebuildBody();
+    this.markDirty();
   }
 
   deactivate() {
@@ -287,7 +305,7 @@ export class Planetside {
     this.titleOverlay = null;
     this.tokenLayer = null;
     this.tileLayer = null;
-    this.mercator = null;
+    this.projection = null;
     this.host = null;
     this.active = false;
   }
