@@ -68,6 +68,10 @@ The heightmap is **opt-in**: provide a PNG (matching the map's framing) and you 
 
 On load, the globe **reveals flat-textured first and the terrain swaps in** when its build completes, so a large map doesn't block the opening. The CPU-side derivation (height readback, normal-map generation, vertex bake) runs at a **capped working resolution** independent of the source image size — so load cost doesn't balloon with high-res heightmaps — while the colour texture stays full-resolution for crispness.
 
+### Lighting & atmosphere
+
+The Planetside tab exposes per-scene **lighting and atmosphere** controls, applied live on save (no reload): **sun** color, intensity, and position as **azimuth + elevation** — azimuth reads as *time of day*, sweeping the day/night terminator across the map; **dark-side brightness** (ambient); and **atmosphere** color (the halo hue) and intensity. Defaults reproduce the built-in look, so an untouched scene is unchanged. These are live property/uniform updates — no geometry rebuild. (Settings are static; there's no animated day/night cycle.)
+
 ## How it works (briefly)
 
 - The globe body is the scene's background image, loaded directly onto the sphere; tokens and tiles are captured per-object from Foundry's live display only when they change. While Planetside is active, Foundry's own per-frame 2D canvas render is suspended (the `#board` is hidden and contributes nothing visible) — its ticker keeps running, so animation logic, timers, and hooks like `refreshToken` still fire and propagate to the globe.

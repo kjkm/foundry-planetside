@@ -2,6 +2,7 @@ import { Planetside } from "./planetside.js";
 import { TITLE_FONT_OPTIONS, TITLE_CORNER_OPTIONS, readTitleFlags } from "./title.js";
 import { PROJECTION_OPTIONS, readProjectionFlags } from "./projection.js";
 import { readTerrainFlags } from "./heightfield.js";
+import { readLightingFlags } from "./lighting.js";
 
 const MODULE_ID = "planetside";
 const TAB_TEMPLATE = `modules/${MODULE_ID}/templates/scene-config-tab.hbs`;
@@ -60,6 +61,7 @@ Hooks.on("renderSceneConfig", async (app, html) => {
     ...readTitleFlags(scene),
     ...readProjectionFlags(scene),
     ...readTerrainFlags(scene),
+    ...readLightingFlags(scene),
     fontOptions: TITLE_FONT_OPTIONS,
     cornerOptions: TITLE_CORNER_OPTIONS,
     projectionOptions: PROJECTION_OPTIONS
@@ -213,6 +215,7 @@ Hooks.on("updateScene", (scene, changes) => {
     controller.activate();
     controller.refreshTitle();
     controller.applyProjection();
+    controller.applyLighting();
   } else {
     controller.deactivate();
   }

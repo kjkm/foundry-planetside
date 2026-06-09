@@ -1,5 +1,6 @@
 import { Projection, readProjectionFlags } from "./projection.js";
 import { Heightfield, readTerrainFlags } from "./heightfield.js";
+import { readLightingFlags } from "./lighting.js";
 import { Scene } from "./scene.js";
 import { OrbitCamera } from "./camera.js";
 import { InputForwarder } from "./input.js";
@@ -90,6 +91,10 @@ export class Planetside {
       heightfield: this.heightfield
     });
     this.scene3d.init();
+
+    // Apply per-scene lighting/atmosphere (sun, ambient, atmosphere) — live, no
+    // rebuild; defaults reproduce the built-in look.
+    this.scene3d.applyLighting(readLightingFlags(canvas.scene));
 
     // Coordinate the load sequence: the colour texture reveals the flat globe and
     // starts the opening; terrain bakes in (once) when its inputs are ready and
@@ -283,6 +288,13 @@ export class Planetside {
   refreshTitle() {
     if (!this.active || !this.titleOverlay) return;
     this.titleOverlay.update(readTitleFlags(canvas.scene));
+  }
+
+  // Re-apply lighting/atmosphere flags live (no rebuild). Called on flag change.
+  applyLighting() {
+    if (!this.active || !this.scene3d) return;
+    this.scene3d.applyLighting(readLightingFlags(canvas.scene));
+    this.markDirty();
   }
 
   // Re-read the projection + terrain flags and rebuild the globe body in place

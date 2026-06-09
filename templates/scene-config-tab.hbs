@@ -49,6 +49,46 @@
 
     <hr>
 
+    <h3>Lighting &amp; atmosphere</h3>
+    <p class="notes">Applied live on save. Sun azimuth reads as time of day — it sweeps the day/night line across the map. Defaults match the built-in look.</p>
+
+    <div class="form-group">
+        <label>Sun color</label>
+        <input type="color" name="flags.planetside.sunColor" value="{{sunColor}}">
+    </div>
+
+    <div class="form-group">
+        <label>Sun intensity</label>
+        <input type="number" name="flags.planetside.sunIntensity" value="{{sunIntensity}}" min="0" max="3" step="0.05">
+    </div>
+
+    <div class="form-group">
+        <label>Sun azimuth (°, time of day)</label>
+        <input type="number" name="flags.planetside.sunAzimuth" value="{{sunAzimuth}}" min="0" max="360" step="1">
+    </div>
+
+    <div class="form-group">
+        <label>Sun elevation (°)</label>
+        <input type="number" name="flags.planetside.sunElevation" value="{{sunElevation}}" min="-90" max="90" step="1">
+    </div>
+
+    <div class="form-group">
+        <label>Dark-side brightness</label>
+        <input type="number" name="flags.planetside.ambientIntensity" value="{{ambientIntensity}}" min="0" max="1" step="0.01">
+    </div>
+
+    <div class="form-group">
+        <label>Atmosphere color</label>
+        <input type="color" name="flags.planetside.atmosphereColor" value="{{atmosphereColor}}">
+    </div>
+
+    <div class="form-group">
+        <label>Atmosphere intensity</label>
+        <input type="number" name="flags.planetside.atmosphereIntensity" value="{{atmosphereIntensity}}" min="0" max="3" step="0.05">
+    </div>
+
+    <hr>
+
     <h3>Title overlay</h3>
     <p class="notes">A title and optional subtitle rendered in a corner of the canvas while Planetside is active. Leave both empty to hide.</p>
 

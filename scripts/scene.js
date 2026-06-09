@@ -261,6 +261,49 @@ export class Scene {
     this.scene.add(this.sunSprite);
   }
 
+  // Point the sun: ONE update for the directional light, the visible sun sprite,
+  // the lens flare, and both atmosphere shells' sun direction — the single sync
+  // point so they never drift.
+  setSunDirection(dir) {
+    this.sunDir = dir;
+    this.sunLight?.position.copy(dir).multiplyScalar(10);
+    const far = dir.clone().multiplyScalar(SUN_DISTANCE);
+    this.sunSprite?.position.copy(far);
+    this.lensFlare?.setSunWorldPosition(far);
+    for (const shell of [this.atmosphereOuter, this.atmosphereInner]) {
+      shell?.material?.uniforms?.uSunDirection?.value.copy(dir);
+    }
+  }
+
+  // Apply per-scene lighting/atmosphere settings live (no geometry rebuild). The
+  // atmosphere colour tints the outer (visible) halo; intensity scales both shells.
+  applyLighting(f) {
+    if (this.ambient) this.ambient.intensity = f.ambientIntensity;
+    if (this.sunLight) {
+      this.sunLight.intensity = f.sunIntensity;
+      this.sunLight.color.set(f.sunColor);
+    }
+    this.sunSprite?.material.color.set(f.sunColor); // the visible disk matches
+    this.setSunDirection(this._dirFromAzEl(f.sunAzimuth, f.sunElevation));
+    const out = this.atmosphereOuter?.material?.uniforms;
+    if (out) {
+      out.uColor.value.set(f.atmosphereColor);
+      out.uIntensity.value = ATMOSPHERE_OUTER.intensity * f.atmosphereIntensity;
+    }
+    const inn = this.atmosphereInner?.material?.uniforms;
+    if (inn) inn.uIntensity.value = ATMOSPHERE_INNER.intensity * f.atmosphereIntensity;
+  }
+
+  _dirFromAzEl(azDeg, elDeg) {
+    const az = azDeg * Math.PI / 180;
+    const el = elDeg * Math.PI / 180;
+    return new THREE.Vector3(
+      Math.cos(el) * Math.sin(az),
+      Math.sin(el),
+      Math.cos(el) * Math.cos(az)
+    );
+  }
+
   _buildStars() {
     const positions = new Float32Array(STAR_COUNT * 3);
     const colors = new Float32Array(STAR_COUNT * 3);
