@@ -18,6 +18,12 @@ export class TileLayer extends PlaceableLayer {
     };
   }
 
+  // Tile width/height are already in scene pixels.
+  _footprintScene(p) {
+    const doc = p.document ?? p;
+    return { w: doc.width ?? 0, h: doc.height ?? 0 };
+  }
+
   // Tiles render image-only on the globe: no decorations, nothing to hide during
   // capture (base defaults to []). No DOM nameplate.
 

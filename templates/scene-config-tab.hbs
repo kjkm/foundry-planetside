@@ -24,6 +24,31 @@
 
     <hr>
 
+    <h3>Terrain (heightmap)</h3>
+    <p class="notes">Optional grayscale PNG that displaces the globe into real relief (white = high), baked into the surface so tokens and pings rest on it. Must match the map's framing. Leave empty for a flat globe — nothing is derived. The flat 2D scene is unaffected.</p>
+
+    <div class="form-group">
+        <label>Heightmap</label>
+        <div class="form-fields">
+            <button type="button" class="file-picker" data-type="image" data-target="flags.planetside.heightmap" title="Browse Files" tabindex="-1">
+                <i class="fas fa-file-import fa-fw"></i>
+            </button>
+            <input type="text" name="flags.planetside.heightmap" value="{{heightmap}}" placeholder="path/to/heightmap.png">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Displacement scale</label>
+        <input type="number" name="flags.planetside.displacementScale" value="{{displacementScale}}" min="0" max="0.5" step="0.005">
+    </div>
+
+    <div class="form-group">
+        <label>Relief strength</label>
+        <input type="number" name="flags.planetside.reliefStrength" value="{{reliefStrength}}" min="0" max="5" step="0.1">
+    </div>
+
+    <hr>
+
     <h3>Title overlay</h3>
     <p class="notes">A title and optional subtitle rendered in a corner of the canvas while Planetside is active. Leave both empty to hide.</p>
 

@@ -28,11 +28,12 @@ const MAX_CAPTURES_PER_FRAME = 4;
  * geometry accessors, decorations, and any per-type extras (e.g. DOM nameplates).
  */
 export class PlaceableLayer {
-  constructor({ scene3d, projection, hostElement, markDirty }) {
+  constructor({ scene3d, projection, hostElement, markDirty, heightfield }) {
     this.scene3d = scene3d;
     this.projection = projection;
     this.host = hostElement;
     this.markDirty = markDirty;
+    this.heightfield = heightfield;
     this.entries = new Map();
   }
 
@@ -47,6 +48,7 @@ export class PlaceableLayer {
     const doc = p.document ?? p;
     return { x: doc.x ?? 0, y: doc.y ?? 0 };
   }
+  _footprintScene(_p) { return { w: 0, h: 0 }; } // scene-space footprint extent (w, h)
   _decorationObjects(_p) { return []; }         // PIXI objects composited over the image
   _hiddenDuringCapture(_p) { return []; }       // PIXI children to hide while capturing
   _onEntryAdded(_entry) {}
@@ -297,6 +299,27 @@ export class PlaceableLayer {
     return ae ? a : (be ? b : null);
   }
 
+  // Max terrain elevation sampled over the placeable's footprint (3×3 grid), so a
+  // flat mesh is lifted clear of any terrain it covers — grounded on its highest
+  // covered point, never clipping. Returns 0 when there is no heightmap.
+  _footprintMaxElevation(p, center, dims) {
+    const hf = this.heightfield;
+    if (!hf?.enabled || !dims) return 0;
+    const fp = this._footprintScene(p);
+    const hw = (fp?.w ?? 0) / 2;
+    const hh = (fp?.h ?? 0) / 2;
+    let max = 0;
+    for (const fx of [-1, 0, 1]) {
+      for (const fy of [-1, 0, 1]) {
+        const u = (center.x + fx * hw - dims.sceneX) / dims.sceneWidth;
+        const v = (center.y + fy * hh - dims.sceneY) / dims.sceneHeight;
+        const e = hf.elevationAt(u, v);
+        if (e > max) max = e;
+      }
+    }
+    return max;
+  }
+
   _updateEntry(entry, canvasRect) {
     const p = entry.placeable;
     const sprite = entry.sprite;
@@ -319,7 +342,11 @@ export class PlaceableLayer {
       return;
     }
 
-    const P = this.projection.latLonToSpherePoint(lat, lon, this._radius());
+    // Rest on the terrain, clear of clipping: lift the (flat) mesh to the highest
+    // terrain under its footprint, so it's grounded on its tallest covered point
+    // and never pokes through a nearby peak. 0 on a flat globe.
+    const lift = this._footprintMaxElevation(p, center, dims);
+    const P = this.projection.latLonToSpherePoint(lat, lon, this._radius() + lift);
     const frame = this.scene3d.surfaceFrame(lat, lon);
 
     // Place the plane so the placeable CENTER (not the texture center) lands on P,

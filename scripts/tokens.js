@@ -32,6 +32,13 @@ export class TokenLayer extends PlaceableLayer {
     };
   }
 
+  // Token width/height are in grid units → scene pixels via the grid size.
+  _footprintScene(p) {
+    const doc = p.document ?? p;
+    const gridSize = canvas.dimensions?.size ?? 100;
+    return { w: (doc.width ?? 1) * gridSize, h: (doc.height ?? 1) * gridSize };
+  }
+
   // The token decorations we mirror, back-to-front. Rendered individually (never
   // the whole Token container, which holds occlusion children that punch a hole).
   _decorationObjects(p) { return [p.border, p.bars, p.effects, p.target]; }

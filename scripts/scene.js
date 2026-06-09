@@ -5,6 +5,18 @@ import { LensFlare } from "./flare.js";
 const SPHERE_RADIUS = 1;
 const SPHERE_SEGMENTS = 96;
 const SPHERE_RINGS = 64;
+// Higher tessellation when a heightmap is active, so baked landforms aren't
+// coarsely faceted (the derived normal map carries sub-vertex detail).
+const TERRAIN_SEGMENTS = 256;
+const TERRAIN_RINGS = 128;
+// On a capless globe (equirect/equal-area at ±90°) the body reaches a converged
+// pole vertex; damp displacement to zero within this band of the pole so it can't
+// spike. When caps exist the edge is a circle (no spike) and carries full heights.
+const POLE_DAMP_BAND_DEG = 6;
+// How fast a cap's per-longitude rim variation fades toward the pole. Higher =
+// the bumpy rim detail is confined nearer the rim and the cap centre is a smooth
+// dome (avoids a puckered/creased pole). 1 = linear.
+const CAP_VARIATION_FADE_POWER = 3;
 
 // Cap the renderer pixel ratio: full devicePixelRatio with antialias on a hi-DPI
 // display renders ~4x the fragments for marginal globe quality. ~1.5 is visually
@@ -42,11 +54,12 @@ const ATMOSPHERE_INNER = {
 };
 
 export class Scene {
-  constructor({ projection, imageSrc, hostElement, markDirty }) {
+  constructor({ projection, imageSrc, hostElement, markDirty, heightfield }) {
     this.projection = projection;
     this.imageSrc = imageSrc;
     this.host = hostElement;
     this.markDirty = markDirty;
+    this.heightfield = heightfield;
 
     this.renderer = null;
     this.scene = null;
@@ -57,7 +70,10 @@ export class Scene {
     this.northCap = null;
     this.southCap = null;
     this.capMaterial = null;
-    this._capColor = null; // derived from the image; reused across body rebuilds
+    this._capColor = null;  // perimeter-average (cap centre colour), linear
+    this._bgPixels = null;  // background image pixel buffer, for cap rim colours
+    this._bgW = 0;
+    this._bgH = 0;
     this.bodyTexture = null;
     this.sunLight = null;
     this.ambient = null;
@@ -135,14 +151,20 @@ export class Scene {
   // re-run cheaply when the projection or latitude span changes.
   _buildBody() {
     const maxLat = this.projection.maxLat;
+    const hf = this.heightfield;
+    const terrain = !!hf?.enabled;
+    const segs = terrain ? TERRAIN_SEGMENTS : SPHERE_SEGMENTS;
+    const rings = terrain ? TERRAIN_RINGS : SPHERE_RINGS;
     const bodyGeom = new THREE.SphereGeometry(
-      SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS,
+      SPHERE_RADIUS, segs, rings,
       0, Math.PI * 2,
       Math.PI / 2 - maxLat, 2 * maxLat
     );
     this._rewriteProjectionUvs(bodyGeom);
+    if (terrain && hf.loaded) this._bakeDisplacement(bodyGeom);
 
     const bodyMat = new THREE.MeshLambertMaterial({ map: this.bodyTexture, side: THREE.FrontSide });
+    if (terrain && hf.normalMap) bodyMat.normalMap = hf.normalMap; // relief baked into the map
     this.body = new THREE.Mesh(bodyGeom, bodyMat);
     this.body.rotation.y = -Math.PI / 2;
     this.scene.add(this.body);
@@ -152,14 +174,34 @@ export class Scene {
     if (!this.projection.coversPoles) {
       const thetaLengthCap = Math.PI / 2 - maxLat;
       const northCapGeom = new THREE.SphereGeometry(
-        SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS, 0, Math.PI * 2, 0, thetaLengthCap
+        SPHERE_RADIUS, segs, rings, 0, Math.PI * 2, 0, thetaLengthCap
       );
       const southCapGeom = new THREE.SphereGeometry(
-        SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS, 0, Math.PI * 2, Math.PI / 2 + maxLat, thetaLengthCap
+        SPHERE_RADIUS, segs, rings, 0, Math.PI * 2, Math.PI / 2 + maxLat, thetaLengthCap
       );
-      this.capMaterial = new THREE.MeshLambertMaterial({ color: this._capColor ?? 0x202020, side: THREE.FrontSide });
+      if (terrain && hf.loaded) {
+        // Interpolate each cap from the body's perimeter heights to a single pole
+        // height, so the gray cap continues the terrain without a cliff.
+        this._bakeCapDisplacement(northCapGeom);
+        this._bakeCapDisplacement(southCapGeom);
+      }
+      // Per-longitude rim colours fading to the average centre (once the image is
+      // loaded), so the cap blends into the map instead of a flat ring.
+      const capVertexColors = !!this._bgPixels;
+      if (capVertexColors) {
+        this._applyCapColors(northCapGeom);
+        this._applyCapColors(southCapGeom);
+      }
+      this.capMaterial = new THREE.MeshLambertMaterial({
+        color: capVertexColors ? 0xffffff : (this._capColor ?? 0x202020),
+        vertexColors: capVertexColors,
+        side: THREE.FrontSide
+      });
       this.northCap = new THREE.Mesh(northCapGeom, this.capMaterial);
       this.southCap = new THREE.Mesh(southCapGeom, this.capMaterial);
+      // Match the body's -90° longitude frame so cap rim heights line up with it.
+      this.northCap.rotation.y = -Math.PI / 2;
+      this.southCap.rotation.y = -Math.PI / 2;
       this.scene.add(this.northCap);
       this.scene.add(this.southCap);
     }
@@ -375,6 +417,125 @@ export class Scene {
     uvAttr.needsUpdate = true;
   }
 
+  // Bake the heightmap into the body geometry: offset each vertex radially by the
+  // elevation at its location, then recompute normals so the displaced surface
+  // shades. The mesh is rotated -90° about Y, so the WORLD longitude is
+  // atan2(-z, x); sampling the heightfield by the resulting scene UV makes terrain
+  // align with both the color map and the (world-positioned) placeables/overlays.
+  _bakeDisplacement(geometry) {
+    const pos = geometry.attributes.position;
+    const coversPoles = this.projection.coversPoles; // capless → has a real pole vertex
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const r = Math.sqrt(x * x + y * y + z * z) || 1;
+      const lat = Math.asin(Math.max(-1, Math.min(1, y / r)));
+      const lon = Math.atan2(-z, x); // world longitude after the body's -90° Y rotation
+      const { u, v } = this.projection.latLonToUv(lat, lon);
+      let h = this.heightfield.elevationAt(u, v);
+      if (h === 0) continue;
+      if (coversPoles) h *= this._poleDamp(lat); // only a converged pole vertex needs it
+      const scale = (r + h) / r;
+      pos.setXYZ(i, x * scale, y * scale, z * scale);
+    }
+    pos.needsUpdate = true;
+    geometry.computeVertexNormals();
+  }
+
+  _poleDamp(lat) {
+    const latDeg = Math.abs(lat) * 180 / Math.PI;
+    return Math.max(0, Math.min(1, (90 - latDeg) / POLE_DAMP_BAND_DEG));
+  }
+
+  // Displace a polar cap so its rim matches the body's displaced edge heights and
+  // interpolates smoothly to a single (mean) height at the pole — no cliff at the
+  // boundary, no tear at the converged pole vertex. The cap is rotated to the body
+  // frame (worldLon = atan2(-z, x)), so rim sampling lines up with the body bake.
+  _bakeCapDisplacement(capGeom) {
+    const pos = capGeom.attributes.position;
+    const maxLat = this.projection.maxLat;
+    const span = (Math.PI / 2) - maxLat; // rim (maxLat) → pole (90°)
+    if (span <= 1e-6) return;
+
+    // Hemisphere sign of this cap, then the mean rim height → the single pole value.
+    let sign = 1;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y !== 0) { sign = Math.sign(y); break; }
+    }
+    const rimLat = sign * maxLat;
+    const SAMPLES = 64;
+    let sum = 0;
+    for (let s = 0; s < SAMPLES; s++) {
+      const lon = -Math.PI + (s / SAMPLES) * 2 * Math.PI;
+      const { u, v } = this.projection.latLonToUv(rimLat, lon);
+      sum += this.heightfield.elevationAt(u, v);
+    }
+    const poleHeight = sum / SAMPLES;
+
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const r = Math.sqrt(x * x + y * y + z * z) || 1;
+      const lat = Math.asin(Math.max(-1, Math.min(1, y / r)));
+      const lon = Math.atan2(-z, x);
+      const { u, v } = this.projection.latLonToUv(rimLat, lon); // body edge height at this lon
+      const rimH = this.heightfield.elevationAt(u, v);
+      const t = Math.min(1, Math.max(0, (Math.abs(lat) - maxLat) / span)); // 0 rim → 1 pole
+      // Fade the per-longitude variation out toward the pole faster than linear, so
+      // the centre settles to a smooth dome (mean height) instead of a puckered
+      // point; the rim (fade = 1) still matches the body edge exactly.
+      const fade = Math.pow(1 - t, CAP_VARIATION_FADE_POWER);
+      const h = poleHeight + (rimH - poleHeight) * fade;
+      if (h === 0) continue;
+      const scale = (r + h) / r;
+      pos.setXYZ(i, x * scale, y * scale, z * scale);
+    }
+    pos.needsUpdate = true;
+    capGeom.computeVertexNormals();
+  }
+
+  // Per-vertex colour for a cap: the body's edge colour at each longitude (so the
+  // cap continues the map at the rim), fading to the perimeter-average toward the
+  // pole with the same curve as the height — a smooth dome, no hard gray ring.
+  _applyCapColors(capGeom) {
+    if (!this._bgPixels) return;
+    const pos = capGeom.attributes.position;
+    const maxLat = this.projection.maxLat;
+    const span = (Math.PI / 2) - maxLat;
+    let sign = 1;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y !== 0) { sign = Math.sign(y); break; }
+    }
+    const rimLat = sign * maxLat;
+    const avg = this._capColor ?? new THREE.Color(0x202020);
+    const tmp = new THREE.Color();
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const r = Math.sqrt(x * x + y * y + z * z) || 1;
+      const lat = Math.asin(Math.max(-1, Math.min(1, y / r)));
+      const lon = Math.atan2(-z, x);
+      const { u, v } = this.projection.latLonToUv(rimLat, lon);
+      this._sampleBgColor(u, v, tmp);
+      const t = span > 1e-6 ? Math.min(1, Math.max(0, (Math.abs(lat) - maxLat) / span)) : 0;
+      const fade = Math.pow(1 - t, CAP_VARIATION_FADE_POWER);
+      colors[i * 3]     = avg.r + (tmp.r - avg.r) * fade;
+      colors[i * 3 + 1] = avg.g + (tmp.g - avg.g) * fade;
+      colors[i * 3 + 2] = avg.b + (tmp.b - avg.b) * fade;
+    }
+    capGeom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  }
+
+  // Nearest-sample the background image at a scene UV → a linear THREE.Color
+  // (sRGB→linear so it matches the body's displayed colour). U wraps, V clamps.
+  _sampleBgColor(u, v, out) {
+    const w = this._bgW, h = this._bgH, data = this._bgPixels;
+    const x = ((Math.round(u * w) % w) + w) % w;
+    const y = Math.max(0, Math.min(h - 1, Math.round(v * h)));
+    const i = (y * w + x) * 4;
+    return out.setRGB(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255, THREE.SRGBColorSpace);
+  }
+
   _onImageLoaded(texture) {
     const img = texture.image;
     if (!img || !img.width || !img.height) return;
@@ -384,11 +545,16 @@ export class Scene {
     const ctx = c.getContext("2d");
     ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, img.width, img.height).data;
+    // Keep the pixel buffer so the caps can sample per-longitude rim colors.
+    this._bgPixels = data;
+    this._bgW = img.width;
+    this._bgH = img.height;
     const { r, g, b } = samplePerimeterAverageColor(data, img.width, img.height);
-    // Store the derived color so rebuilds (projection change) reuse it; apply to
-    // the current caps if they exist (none when the map covers the full sphere).
-    this._capColor = new THREE.Color().setRGB(r, g, b);
-    this.capMaterial?.color.copy(this._capColor);
+    // The average is the cap's centre colour; sRGB → linear so it matches the body.
+    this._capColor = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
+    // Rebuild so the caps pick up the per-longitude rim colours (and the average
+    // centre) now that the image pixels are available.
+    this.rebuildBody();
   }
 
   render() {

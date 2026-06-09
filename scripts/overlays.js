@@ -9,10 +9,11 @@ const OVERLAY_SELECTORS = [
 const PING_DURATION_MS = 2000; // fallback if CONFIG.Canvas.pings.duration is unset
 
 export class OverlayReanchor {
-  constructor({ scene3d, projection, hostElement }) {
+  constructor({ scene3d, projection, hostElement, heightfield }) {
     this.scene3d = scene3d;
     this.projection = projection;
     this.host = hostElement;
+    this.heightfield = heightfield;
     this._originalStyles = new Map();
     this._pings = [];           // active globe ping markers
     this._controls = null;      // ControlsLayer whose drawPing we wrapped
@@ -123,7 +124,9 @@ export class OverlayReanchor {
     const { lat, lon } = this.projection.uvToLatLon(u, v);
     if (!this.projection.isLatitudeOnBody(lat)) return null;
 
-    const world = this.projection.latLonToSpherePoint(lat, lon, 1);
+    // Anchor on the terrain surface (radius 1 on a flat globe).
+    const elev = this.heightfield?.elevationAt(u, v) ?? 0;
+    const world = this.projection.latLonToSpherePoint(lat, lon, 1 + elev);
     if (!this.scene3d.isFacingCamera(world)) return null;
     return this.scene3d.projectWorldToScreen(world);
   }
