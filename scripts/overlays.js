@@ -9,11 +9,12 @@ const OVERLAY_SELECTORS = [
 const PING_DURATION_MS = 2000; // fallback if CONFIG.Canvas.pings.duration is unset
 
 export class OverlayReanchor {
-  constructor({ scene3d, projection, hostElement, heightfield }) {
+  constructor({ scene3d, projection, hostElement, heightfield, onPing }) {
     this.scene3d = scene3d;
     this.projection = projection;
     this.host = hostElement;
     this.heightfield = heightfield;
+    this.onPing = onPing; // (sceneX, sceneY, options) => mirror the ping elsewhere (e.g. minimap)
     this._originalStyles = new Map();
     this._pings = [];           // active globe ping markers
     this._controls = null;      // ControlsLayer whose drawPing we wrapped
@@ -101,6 +102,10 @@ export class OverlayReanchor {
     this.host.appendChild(el);
     const duration = CONFIG?.Canvas?.pings?.duration ?? PING_DURATION_MS;
     this._pings.push({ el, sceneX, sceneY, expiresAt: performance.now() + duration });
+
+    // Fan out to any observer (the minimap mirrors this as a flat marker). This is
+    // the single ping capture point — observers must NOT wrap drawPing themselves.
+    this.onPing?.(sceneX, sceneY, options);
   }
 
   _updatePings() {
