@@ -60,6 +60,12 @@ Tiles render on the globe through the same display-capture pipeline as tokens (a
 
 Known limitations: token-enter/hover triggers are not forwarded (enter already fires from flat-map movement); right-click on a token opens the Token HUD rather than firing a tile trigger; the footprint hit-test is axis-aligned (tile rotation ignored); overlapping trigger-tiles all fire. Rendering limitations: large tiles are flat quads and won't follow the sphere's curvature; video/animated tiles show a still; overhead/roof tiles are drawn like background tiles without occlusion; tiles are not selectable/editable on the globe.
 
+### Terrain (heightmap)
+
+Optionally give a scene a grayscale **heightmap PNG** (Planetside tab → Terrain) and the globe displaces into real relief — mountains and valleys that catch the sun and break the silhouette. The height is **baked into the body geometry on the CPU** (not a GPU-only shader bulge), so the displaced surface *is* the real surface: clicks and pings raycast the terrain you see, and tokens/tiles/pings/HUD rest **on** it (a shared elevation field raises them to the surface). A normal map is derived from the heightmap for fine relief shading beyond the vertex resolution, and the body tessellates higher when terrain is active.
+
+The heightmap is **opt-in**: provide a PNG (matching the map's framing) and you get terrain; leave it empty and the globe stays exactly flat — nothing is derived from the map image. Displacement is damped toward the poles to avoid spikes, and the **flat 2D scene is unaffected** (terrain is a globe-view display layer; walls/vision/collision stay 2D). White = high; tune **Displacement scale** (in globe radii) and **Relief strength** (normal-map intensity) in the config tab.
+
 ## How it works (briefly)
 
 - The globe body is the scene's background image, loaded directly onto the sphere; tokens and tiles are captured per-object from Foundry's live display only when they change. While Planetside is active, Foundry's own per-frame 2D canvas render is suspended (the `#board` is hidden and contributes nothing visible) — its ticker keeps running, so animation logic, timers, and hooks like `refreshToken` still fire and propagate to the globe.
@@ -123,6 +129,7 @@ planetside/
 │   ├── main.js              # entry: hooks
 │   ├── planetside.js        # controller: activate / deactivate / per-frame tick
 │   ├── projection.js        # selectable projection (equirect/mercator/equal-area) + inverse math
+│   ├── heightfield.js       # heightmap load + elevation sampling + derived normal map
 │   ├── capture.js           # PIXI canvas → render texture → Three.js DataTexture
 │   ├── scene.js             # Three.js scene, sphere mesh, body + caps geometry
 │   ├── caps.js              # perimeter sampling for polar cap color

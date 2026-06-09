@@ -1,4 +1,5 @@
 import { Projection, readProjectionFlags } from "./projection.js";
+import { Heightfield, readTerrainFlags } from "./heightfield.js";
 import { Scene } from "./scene.js";
 import { OrbitCamera } from "./camera.js";
 import { InputForwarder } from "./input.js";
@@ -31,6 +32,7 @@ export class Planetside {
     this.active = false;
     this.host = null;
     this.projection = null;
+    this.heightfield = null;
     this.scene3d = null;
     this.orbit = null;
     this.input = null;
@@ -74,13 +76,19 @@ export class Planetside {
       latitudeSpanDeg: projFlags.latitudeSpan
     });
 
+    this.heightfield = new Heightfield(readTerrainFlags(canvas.scene));
+
     this.scene3d = new Scene({
       projection: this.projection,
       imageSrc,
       hostElement: this.host,
-      markDirty
+      markDirty,
+      heightfield: this.heightfield
     });
     this.scene3d.init();
+
+    // When the heightmap finishes loading (async), re-bake the body and redraw.
+    this.heightfield.onReady = () => { this.scene3d?.rebuildBody(); this.markDirty(); };
 
     this.orbit = new OrbitCamera({
       camera: this.scene3d.camera,
@@ -92,14 +100,16 @@ export class Planetside {
       scene3d: this.scene3d,
       projection: this.projection,
       hostElement: this.host,
-      markDirty
+      markDirty,
+      heightfield: this.heightfield
     });
 
     this.tileLayer = new TileLayer({
       scene3d: this.scene3d,
       projection: this.projection,
       hostElement: this.host,
-      markDirty
+      markDirty,
+      heightfield: this.heightfield
     });
 
     this.input = new InputForwarder({
@@ -120,7 +130,8 @@ export class Planetside {
     this.overlays = new OverlayReanchor({
       scene3d: this.scene3d,
       projection: this.projection,
-      hostElement: this.host
+      hostElement: this.host,
+      heightfield: this.heightfield
     });
     this.overlays.install();
 
@@ -263,9 +274,10 @@ export class Planetside {
     this.titleOverlay.update(readTitleFlags(canvas.scene));
   }
 
-  // Re-read the projection/latitude-span flags and rebuild the globe body in
-  // place (camera/texture preserved). The single Projection instance is mutated,
-  // so all consumers (input, overlays, placeables, scene) follow automatically.
+  // Re-read the projection + terrain flags and rebuild the globe body in place
+  // (camera/texture preserved). The single Projection and Heightfield instances
+  // are mutated, so all consumers (input, overlays, placeables, scene) follow
+  // automatically. A new heightmap loads async and re-bakes again via onReady.
   applyProjection() {
     if (!this.active || !this.projection) return;
     const projFlags = readProjectionFlags(canvas.scene);
@@ -273,6 +285,7 @@ export class Planetside {
       curve: projFlags.projection,
       latitudeSpanDeg: projFlags.latitudeSpan
     });
+    this.heightfield?.configure(readTerrainFlags(canvas.scene));
     this.scene3d?.rebuildBody();
     this.markDirty();
   }
@@ -296,6 +309,7 @@ export class Planetside {
     this.input?.uninstall();
     this.orbit?.uninstall();
     this.scene3d?.destroy();
+    this.heightfield?.destroy();
     document.body.classList.remove("planetside-active");
 
     this.scene3d = null;
@@ -306,6 +320,7 @@ export class Planetside {
     this.tokenLayer = null;
     this.tileLayer = null;
     this.projection = null;
+    this.heightfield = null;
     this.host = null;
     this.active = false;
   }

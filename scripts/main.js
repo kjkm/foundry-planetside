@@ -1,6 +1,7 @@
 import { Planetside } from "./planetside.js";
 import { TITLE_FONT_OPTIONS, TITLE_CORNER_OPTIONS, readTitleFlags } from "./title.js";
 import { PROJECTION_OPTIONS, readProjectionFlags } from "./projection.js";
+import { readTerrainFlags } from "./heightfield.js";
 
 const MODULE_ID = "planetside";
 const TAB_TEMPLATE = `modules/${MODULE_ID}/templates/scene-config-tab.hbs`;
@@ -58,6 +59,7 @@ Hooks.on("renderSceneConfig", async (app, html) => {
     enabled: isSceneEnabled(scene),
     ...readTitleFlags(scene),
     ...readProjectionFlags(scene),
+    ...readTerrainFlags(scene),
     fontOptions: TITLE_FONT_OPTIONS,
     cornerOptions: TITLE_CORNER_OPTIONS,
     projectionOptions: PROJECTION_OPTIONS
@@ -97,6 +99,7 @@ function _injectPlanetsideTabV2(app, root, tabHtml) {
   if (lastTab) lastTab.after(section);
   else root.querySelector("footer")?.before(section) ?? root.append(section);
 
+  _wireFilePickers(section);
   app.setPosition?.({ height: "auto" });
 }
 
@@ -112,7 +115,30 @@ function _injectPlanetsideTabV1(app, html, tabHtml) {
     if (lastTab.length) lastTab.after(tabHtml);
     else $html.find("footer").first().before(tabHtml);
   }
+  _wireFilePickers($html[0] ?? $html);
   app.setPosition({ height: "auto" });
+}
+
+// Wire any file-picker buttons in the injected tab (the sheet won't auto-bind
+// buttons we added). Best-effort + version-tolerant; the text input persists the
+// path regardless, so this only adds the browse convenience.
+function _wireFilePickers(root) {
+  if (!root?.querySelectorAll) return;
+  const FPClass = globalThis.FilePicker ?? foundry?.applications?.apps?.FilePicker;
+  const FP = FPClass?.implementation ?? FPClass;
+  for (const btn of root.querySelectorAll("button.file-picker[data-target]")) {
+    if (btn._planetsideWired) continue;
+    btn._planetsideWired = true;
+    btn.addEventListener("click", () => {
+      const input = root.querySelector(`[name="${btn.dataset.target}"]`);
+      if (!input || !FP) return;
+      new FP({
+        type: btn.dataset.type || "image",
+        current: input.value || "",
+        callback: (path) => { input.value = path; }
+      }).render(true);
+    });
+  }
 }
 
 function tokenSceneId(tokenDocument) {
