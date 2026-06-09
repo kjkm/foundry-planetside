@@ -29,6 +29,53 @@ body.planetside-active #hud {
   left: 0 !important;
 }
 
+/* Minimap panel: a flat corner overlay showing the map image (stretched to the
+   scene aspect ratio) with a crosshair reticle tracking the camera view-center.
+   Geometry (size, corner inset, background image) and the reticle's u/v position
+   are set inline by MinimapOverlay; this styles the frame and the reticle marks.
+   pointer-events stay off so it never steals input from the globe. */
+#planetside-minimap {
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 3px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+/* The two crosshair lines span the full panel; a dark drop-shadow keeps them
+   legible over both bright and dark maps. */
+.planetside-minimap-hline,
+.planetside-minimap-vline {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.planetside-minimap-hline {
+  left: 0;
+  width: 100%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.planetside-minimap-vline {
+  top: 0;
+  height: 100%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+/* The small centre box marking the exact view-center. */
+.planetside-minimap-box {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+  background: rgba(255, 255, 255, 0.08);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
 /* Globe ping marker: an expanding-ring pulse in the pinging user's colour
    (--ping-color), anchored at the ping's projected sphere position by
    OverlayReanchor. The element is a zero-size anchor point; the rings are drawn

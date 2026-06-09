@@ -1,5 +1,6 @@
 import { Planetside } from "./planetside.js";
 import { TITLE_FONT_OPTIONS, TITLE_CORNER_OPTIONS, readTitleFlags } from "./title.js";
+import { MINIMAP_CORNER_OPTIONS, readMinimapFlags } from "./minimap.js";
 import { PROJECTION_OPTIONS, readProjectionFlags } from "./projection.js";
 import { readTerrainFlags } from "./heightfield.js";
 import { readLightingFlags } from "./lighting.js";
@@ -59,11 +60,13 @@ Hooks.on("renderSceneConfig", async (app, html) => {
   const tabHtml = await renderTpl(TAB_TEMPLATE, {
     enabled: isSceneEnabled(scene),
     ...readTitleFlags(scene),
+    ...readMinimapFlags(scene),
     ...readProjectionFlags(scene),
     ...readTerrainFlags(scene),
     ...readLightingFlags(scene),
     fontOptions: TITLE_FONT_OPTIONS,
     cornerOptions: TITLE_CORNER_OPTIONS,
+    minimapCornerOptions: MINIMAP_CORNER_OPTIONS,
     projectionOptions: PROJECTION_OPTIONS
   });
 
@@ -214,6 +217,7 @@ Hooks.on("updateScene", (scene, changes) => {
   if (isSceneEnabled(scene)) {
     controller.activate();
     controller.refreshTitle();
+    controller.refreshMinimap();
     controller.applyProjection();
     controller.applyLighting();
   } else {
