@@ -1,8 +1,5 @@
-# atmosphere Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change globe-battlemap-renderer. Update Purpose after archive.
-## Requirements
 ### Requirement: Two atmosphere shells render a sun-aware Fresnel halo around the planet
 
 The module SHALL add two BackSide-rendered sphere meshes around the planet body, each with a custom `ShaderMaterial` and additive blending. The shaders SHALL compute fragment brightness as the product of:
@@ -32,4 +29,3 @@ The atmosphere's **halo color** and overall **intensity** SHALL be configurable 
 
 - **WHEN** the atmosphere color or intensity is changed for a scene
 - **THEN** the halo's hue/strength updates immediately (shader uniforms) without a geometry rebuild; with no flags set, the halo matches the previous built-in look
-
