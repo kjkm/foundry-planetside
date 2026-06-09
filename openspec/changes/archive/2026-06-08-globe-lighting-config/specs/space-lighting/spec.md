@@ -1,8 +1,5 @@
-# space-lighting Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change globe-battlemap-renderer. Update Purpose after archive.
-## Requirements
 ### Requirement: Sphere body and caps are lit by directional sun light plus ambient light
 
 The sphere body and polar caps SHALL use a lit material (`MeshLambertMaterial`) and SHALL be illuminated by:
@@ -37,4 +34,3 @@ The sun's **color**, **intensity**, and **direction**, and the **ambient (dark-s
 
 - **WHEN** a scene has no lighting flags set
 - **THEN** the sun direction, color, intensity, and ambient level match the previous built-in constants (the scene renders identically to before)
-
