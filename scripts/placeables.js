@@ -16,7 +16,7 @@ const MAX_CAPTURES_PER_FRAME = 4;
  * Shared rendering pipeline for Foundry placeables (tokens, tiles) on the globe.
  *
  * Each placeable becomes a flat textured `THREE.Mesh` laid on the sphere via the
- * surface tangent frame, positioned by Mercator forward projection of its center.
+ * surface tangent frame, positioned by the projection's forward mapping of its center.
  * The texture is produced by capturing the live Foundry rendering: the image
  * (a PrimarySpriteMesh in the PrimaryCanvasGroup, which cannot be reparented and
  * only outlines outside its primary-group framebuffer) is drawn as a plain Sprite
@@ -28,9 +28,9 @@ const MAX_CAPTURES_PER_FRAME = 4;
  * geometry accessors, decorations, and any per-type extras (e.g. DOM nameplates).
  */
 export class PlaceableLayer {
-  constructor({ scene3d, mercator, hostElement, markDirty }) {
+  constructor({ scene3d, projection, hostElement, markDirty }) {
     this.scene3d = scene3d;
-    this.mercator = mercator;
+    this.projection = projection;
     this.host = hostElement;
     this.markDirty = markDirty;
     this.entries = new Map();
@@ -312,14 +312,14 @@ export class PlaceableLayer {
     const center = this._centerScene(p);
     const u = (center.x - dims.sceneX) / dims.sceneWidth;
     const v = (center.y - dims.sceneY) / dims.sceneHeight;
-    const { lat, lon } = this.mercator.uvToLatLon(u, v);
-    if (!this.mercator.isLatitudeOnBody(lat)) {
+    const { lat, lon } = this.projection.uvToLatLon(u, v);
+    if (!this.projection.isLatitudeOnBody(lat)) {
       sprite.visible = false;
       this._hideExtras(entry);
       return;
     }
 
-    const P = this.mercator.latLonToSpherePoint(lat, lon, this._radius());
+    const P = this.projection.latLonToSpherePoint(lat, lon, this._radius());
     const frame = this.scene3d.surfaceFrame(lat, lon);
 
     // Place the plane so the placeable CENTER (not the texture center) lands on P,

@@ -42,8 +42,8 @@ const ATMOSPHERE_INNER = {
 };
 
 export class Scene {
-  constructor({ mercator, imageSrc, hostElement, markDirty }) {
-    this.mercator = mercator;
+  constructor({ projection, imageSrc, hostElement, markDirty }) {
+    this.projection = projection;
     this.imageSrc = imageSrc;
     this.host = hostElement;
     this.markDirty = markDirty;
@@ -57,6 +57,7 @@ export class Scene {
     this.northCap = null;
     this.southCap = null;
     this.capMaterial = null;
+    this._capColor = null; // derived from the image; reused across body rebuilds
     this.bodyTexture = null;
     this.sunLight = null;
     this.ambient = null;
@@ -114,18 +115,8 @@ export class Scene {
   }
 
   _buildSphere() {
-    const maxLat = this.mercator.maxLat;
-    const thetaStartBody = Math.PI / 2 - maxLat;
-    const thetaLengthBody = 2 * maxLat;
-    const thetaLengthCap = Math.PI / 2 - maxLat;
-
-    const bodyGeom = new THREE.SphereGeometry(
-      SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS,
-      0, Math.PI * 2,
-      thetaStartBody, thetaLengthBody
-    );
-    this._rewriteUvsForMercator(bodyGeom);
-
+    // Load the texture once; the cap color is derived from it on load. The body +
+    // caps geometry is built (and rebuilt on projection change) by _buildBody.
     this.bodyTexture = new THREE.TextureLoader().load(
       this.imageSrc,
       (tex) => this._onImageLoaded(tex)
@@ -136,30 +127,67 @@ export class Scene {
     this.bodyTexture.magFilter = THREE.LinearFilter;
     this.bodyTexture.colorSpace = THREE.SRGBColorSpace;
 
-    const bodyMat = new THREE.MeshLambertMaterial({
-      map: this.bodyTexture,
-      side: THREE.FrontSide
-    });
+    this._buildBody();
+  }
+
+  // Build the body mesh + (conditional) polar caps from the current projection.
+  // Reuses the already-loaded texture and the derived cap color, so it can be
+  // re-run cheaply when the projection or latitude span changes.
+  _buildBody() {
+    const maxLat = this.projection.maxLat;
+    const bodyGeom = new THREE.SphereGeometry(
+      SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS,
+      0, Math.PI * 2,
+      Math.PI / 2 - maxLat, 2 * maxLat
+    );
+    this._rewriteProjectionUvs(bodyGeom);
+
+    const bodyMat = new THREE.MeshLambertMaterial({ map: this.bodyTexture, side: THREE.FrontSide });
     this.body = new THREE.Mesh(bodyGeom, bodyMat);
     this.body.rotation.y = -Math.PI / 2;
     this.scene.add(this.body);
 
-    const northCapGeom = new THREE.SphereGeometry(
-      SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS,
-      0, Math.PI * 2,
-      0, thetaLengthCap
-    );
-    const southCapGeom = new THREE.SphereGeometry(
-      SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS,
-      0, Math.PI * 2,
-      Math.PI / 2 + maxLat, thetaLengthCap
-    );
+    // Polar caps only when the body does not reach the poles (Mercator, or span
+    // < 90°). At full coverage the map itself reaches the poles — no caps.
+    if (!this.projection.coversPoles) {
+      const thetaLengthCap = Math.PI / 2 - maxLat;
+      const northCapGeom = new THREE.SphereGeometry(
+        SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS, 0, Math.PI * 2, 0, thetaLengthCap
+      );
+      const southCapGeom = new THREE.SphereGeometry(
+        SPHERE_RADIUS, SPHERE_SEGMENTS, SPHERE_RINGS, 0, Math.PI * 2, Math.PI / 2 + maxLat, thetaLengthCap
+      );
+      this.capMaterial = new THREE.MeshLambertMaterial({ color: this._capColor ?? 0x202020, side: THREE.FrontSide });
+      this.northCap = new THREE.Mesh(northCapGeom, this.capMaterial);
+      this.southCap = new THREE.Mesh(southCapGeom, this.capMaterial);
+      this.scene.add(this.northCap);
+      this.scene.add(this.southCap);
+    }
+  }
 
-    this.capMaterial = new THREE.MeshLambertMaterial({ color: 0x202020, side: THREE.FrontSide });
-    this.northCap = new THREE.Mesh(northCapGeom, this.capMaterial);
-    this.southCap = new THREE.Mesh(southCapGeom, this.capMaterial);
-    this.scene.add(this.northCap);
-    this.scene.add(this.southCap);
+  // Rebuild the body + caps after a projection / latitude-span change. Preserves
+  // the camera, texture, lighting, atmosphere, etc.
+  rebuildBody() {
+    this._disposeBody();
+    this._buildBody();
+    this.markDirty?.();
+  }
+
+  _disposeBody() {
+    if (this.body) {
+      this.scene.remove(this.body);
+      this.body.geometry.dispose();
+      this.body.material.dispose(); // not the texture — it is reused
+      this.body = null;
+    }
+    for (const cap of [this.northCap, this.southCap]) {
+      if (!cap) continue;
+      this.scene.remove(cap);
+      cap.geometry.dispose();
+    }
+    if (this.capMaterial) { this.capMaterial.dispose(); this.capMaterial = null; }
+    this.northCap = null;
+    this.southCap = null;
   }
 
   _buildLighting() {
@@ -329,10 +357,9 @@ export class Scene {
     return tex;
   }
 
-  _rewriteUvsForMercator(geometry) {
+  _rewriteProjectionUvs(geometry) {
     const uvAttr = geometry.attributes.uv;
     const posAttr = geometry.attributes.position;
-    const yMax = this.mercator.yMax;
 
     for (let i = 0; i < uvAttr.count; i++) {
       const x = posAttr.getX(i);
@@ -340,9 +367,10 @@ export class Scene {
       const z = posAttr.getZ(i);
       const r = Math.sqrt(x * x + y * y + z * z) || 1;
       const lat = Math.asin(Math.max(-1, Math.min(1, y / r)));
-      const yMerc = Math.log(Math.tan(Math.PI / 4 + lat / 2));
-      const v = 0.5 + 0.5 * (yMerc / yMax);
-      uvAttr.setY(i, v);
+      // Mesh V is the texture-flipped canonical V (the single flip site): the
+      // texture loads flipY, so geometric north must sample V=1 while the
+      // projection's canonical latToV puts north at V=0.
+      uvAttr.setY(i, 1 - this.projection.latToV(lat));
     }
     uvAttr.needsUpdate = true;
   }
@@ -357,7 +385,10 @@ export class Scene {
     ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, img.width, img.height).data;
     const { r, g, b } = samplePerimeterAverageColor(data, img.width, img.height);
-    this.capMaterial.color.setRGB(r, g, b);
+    // Store the derived color so rebuilds (projection change) reuse it; apply to
+    // the current caps if they exist (none when the map covers the full sphere).
+    this._capColor = new THREE.Color().setRGB(r, g, b);
+    this.capMaterial?.color.copy(this._capColor);
   }
 
   render() {
@@ -407,13 +438,13 @@ export class Scene {
   // Returns the surface tangent frame at (lat, lon): outward radial normal, the
   // north (increasing-latitude) and east (increasing-longitude) tangents, and a
   // quaternion orienting a plane so local +X→east, +Y→north, +Z→outward normal.
-  // Tangents are derived by finite-differencing the Mercator sphere mapping, so
+  // Tangents are derived by finite-differencing the projection's sphere mapping, so
   // this stays correct regardless of the mapping's internal convention. Used to
   // lay token meshes flat on the surface with a consistent (non-wobbling) roll.
   surfaceFrame(lat, lon) {
     const EPS = 1e-3;
-    const P = this.mercator.latLonToSpherePoint(lat, lon, 1);
-    const Pn = this.mercator.latLonToSpherePoint(lat + EPS, lon, 1);
+    const P = this.projection.latLonToSpherePoint(lat, lon, 1);
+    const Pn = this.projection.latLonToSpherePoint(lat + EPS, lon, 1);
 
     const normal = this._sfNormal.set(P.x, P.y, P.z).normalize();
     const north = this._sfNorth.set(Pn.x - P.x, Pn.y - P.y, Pn.z - P.z);

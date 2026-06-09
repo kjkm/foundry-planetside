@@ -64,8 +64,8 @@ Known limitations: token-enter/hover triggers are not forwarded (enter already f
 
 - The globe body is the scene's background image, loaded directly onto the sphere; tokens and tiles are captured per-object from Foundry's live display only when they change. While Planetside is active, Foundry's own per-frame 2D canvas render is suspended (the `#board` is hidden and contributes nothing visible) — its ticker keeps running, so animation logic, timers, and hooks like `refreshToken` still fire and propagate to the globe.
 - The globe renders **on demand**: it re-draws only on frames where something changed (camera moved, a placeable was re-captured, or a resize). When nothing is moving it does no WebGL work, so an idle globe costs about what an idle flat map does. Ping pulses animate on the compositor and keep going while the globe sits idle.
-- A Three.js scene displays a sphere mesh in the visible canvas region. The captured texture is wrapped onto the sphere using Mercator UV mapping, cropped at ±85° latitude.
-- The polar caps above and below the cropped Mercator rectangle are filled with the average color of the rectangle's perimeter.
+- A Three.js scene displays a sphere mesh in the visible canvas region. The map image is wrapped onto the sphere using a **selectable projection** — equirectangular by default (the right fit for a flat map), or Mercator / equal-area — chosen per scene in the Planetside config tab. The projection's `lat ↔ V` curve is the single source both the mesh UVs and the input/ping/HUD inverse derive from, so clicks and pings land where the texture shows them.
+- A configurable **latitude span** sets how far toward the poles the map reaches. At ±90° (equirectangular/equal-area) the map covers the whole sphere; at a smaller span — or with Mercator — the uncovered **polar caps** are filled with the average color of the map's perimeter.
 - A constrained orbit camera circles the sphere with world Y locked as up and the sphere center as the look-at target. Elevation is clamped strictly short of ±90°.
 - Pointer events on the Three.js canvas first raycast the token meshes. A hit forwards the interaction semantically by calling Foundry's real token handlers (`control`, `releaseAll`, the actor sheet, the Token HUD). A miss is raycast against the sphere, inverse-Mercator-projected back to 2D scene coordinates, and dispatched as a synthesized PIXI federated event on the offscreen PIXI stage.
 - A small set of Foundry DOM overlays (token HUD, chat bubbles, tooltips) are reanchored each frame to the screen position where their 2D scene coordinate projects on the sphere.
@@ -90,7 +90,7 @@ Some are intentional, some are known-but-deferred.
 
 ### East-west seam
 
-The Mercator rectangle's left and right edges represent the same meridian on the sphere. The visible texture wraps continuously, but Foundry's wall, lighting, and vision solvers compute on a non-wrapping rectangle and **do not** treat the seam as connected. A wall placed near the right edge will not occlude vision into the left edge; a torch placed near the seam will not cast light past it.
+The map rectangle's left and right edges represent the same meridian on the sphere (the map always wraps fully around). The visible texture wraps continuously, but Foundry's wall, lighting, and vision solvers compute on a non-wrapping rectangle and **do not** treat the seam as connected. A wall placed near the right edge will not occlude vision into the left edge; a torch placed near the seam will not cast light past it.
 
 **Author guidance:** position the seam over terrain where gameplay doesn't happen (ocean, wasteland, sky).
 
@@ -122,7 +122,7 @@ planetside/
 ├── scripts/
 │   ├── main.js              # entry: hooks
 │   ├── planetside.js        # controller: activate / deactivate / per-frame tick
-│   ├── mercator.js          # forward / inverse Mercator math
+│   ├── projection.js        # selectable projection (equirect/mercator/equal-area) + inverse math
 │   ├── capture.js           # PIXI canvas → render texture → Three.js DataTexture
 │   ├── scene.js             # Three.js scene, sphere mesh, body + caps geometry
 │   ├── caps.js              # perimeter sampling for polar cap color

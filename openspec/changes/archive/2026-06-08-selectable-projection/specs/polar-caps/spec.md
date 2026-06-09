@@ -1,8 +1,5 @@
-# polar-caps Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change globe-battlemap-renderer. Update Purpose after archive.
-## Requirements
 ### Requirement: Polar caps filled with perimeter-average color of loaded image
 
 The module SHALL render polar caps **only when the body does not cover the full sphere** — i.e. when the latitude span is less than ±90° or the projection (e.g. Mercator) cannot reach the poles. When caps are rendered, the module SHALL fill the polar regions of the sphere (the spherical caps above and below the projected body) with a flat color derived from the average of the loaded background image's perimeter pixels, computed once at image-load time and applied to both cap meshes. When the body covers the full sphere (e.g. equirectangular or equal-area at ±90° span), the module SHALL NOT render polar caps.
@@ -22,4 +19,3 @@ The module SHALL render polar caps **only when the body does not cover the full 
 
 - **WHEN** caps are rendered with a loaded scene texture
 - **THEN** the polar regions appear as a flat color derived from the image, not transparent and not a hardcoded default
-

@@ -18,9 +18,9 @@ const DEBUG = false;
 const log = (...args) => { if (DEBUG) console.log("[planetside-input]", ...args); };
 
 export class InputForwarder {
-  constructor({ scene3d, mercator, orbitCamera, tokenLayer, onGmPull }) {
+  constructor({ scene3d, projection, orbitCamera, tokenLayer, onGmPull }) {
     this.scene3d = scene3d;
-    this.mercator = mercator;
+    this.projection = projection;
     this.orbit = orbitCamera;
     this.tokenLayer = tokenLayer;
     this.onGmPull = onGmPull; // (sceneX, sceneY) => fire a GM pull (controller-owned)
@@ -101,13 +101,13 @@ export class InputForwarder {
       return;
     }
 
-    const { lat, lon } = this.mercator.spherePointToLatLon(hit.point);
-    if (!this.mercator.isLatitudeOnBody(lat)) {
+    const { lat, lon } = this.projection.spherePointToLatLon(hit.point);
+    if (!this.projection.isLatitudeOnBody(lat)) {
       if (e.type === "pointerdown" || e.type === "pointerup") log(`hit beyond cropped lat (${(lat*180/Math.PI).toFixed(1)}°) — drop`);
       return;
     }
 
-    const { u, v } = this.mercator.latLonToUv(lat, lon);
+    const { u, v } = this.projection.latLonToUv(lat, lon);
     const dims = canvas.dimensions;
     const sceneX = u * dims.sceneWidth + dims.sceneX;
     const sceneY = v * dims.sceneHeight + dims.sceneY;
@@ -328,9 +328,9 @@ export class InputForwarder {
 
     const hit = this.scene3d.raycastSphere(ndcX, ndcY);
     if (!hit) return;
-    const { lat, lon } = this.mercator.spherePointToLatLon(hit.point);
-    if (!this.mercator.isLatitudeOnBody(lat)) return;
-    const { u, v } = this.mercator.latLonToUv(lat, lon);
+    const { lat, lon } = this.projection.spherePointToLatLon(hit.point);
+    if (!this.projection.isLatitudeOnBody(lat)) return;
+    const { u, v } = this.projection.latLonToUv(lat, lon);
     const dims = canvas.dimensions;
     const sceneX = u * dims.sceneWidth + dims.sceneX;
     const sceneY = v * dims.sceneHeight + dims.sceneY;
@@ -433,7 +433,7 @@ export class InputForwarder {
 
   _sceneToGlobal(sceneX, sceneY) {
     // PIXI's event boundary operates in global/screen coordinates, but our
-    // raycast + inverse-Mercator path produces world/scene coordinates. The
+    // raycast + inverse-projection path produces world/scene coordinates. The
     // canvas stage is panned and zoomed, so convert through its transform.
     const p = canvas.stage.toGlobal(new PIXI.Point(sceneX, sceneY));
     return { x: p.x, y: p.y };
