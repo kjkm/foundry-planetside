@@ -33,7 +33,13 @@ Note: In v0, the visible globe is a static texture, so the player cannot see vis
 
 ### Requirement: Globe long-press fires a ping directly via canvas.ping()
 
-When the player presses and holds the left button on the empty sphere (over no token mesh) for a hold threshold without moving past a small tolerance, the module SHALL treat it as a long-press and fire a ping by calling `canvas.ping(origin, options)` directly with the inverse-Mercator-projected scene coordinate of the hit — rather than relying on `MouseInteractionManager` to detect the long-press from synthesized events. Because `canvas.ping()` draws the ping locally (via `ControlsLayer#drawPing`, which the module already wraps to render a globe marker) and broadcasts it to other clients, the ping SHALL appear on the globe and on other clients exactly as a flat-map ping would. The call SHALL carry the alert style when the Alt modifier is held, and the default style otherwise.
+When the player presses and holds the left button on the empty sphere (over no token mesh) for a hold threshold without moving past a small tolerance, the module SHALL treat it as a long-press and fire a ping by calling `canvas.ping(origin, options)` directly with the inverse-Mercator-projected scene coordinate of the hit — rather than relying on `MouseInteractionManager` to detect the long-press from synthesized events. Because `canvas.ping()` draws the ping locally (via `ControlsLayer#drawPing`, which the module already wraps to render a globe marker) and broadcasts it to other clients, the ping SHALL appear on the globe and on other clients exactly as a flat-map ping would.
+
+The long-press SHALL map modifier keys to ping type:
+- No modifier → a normal ping (default style).
+- **Alt** held → an alert ping (`canvas.ping(origin, { style: "alert" })`).
+- **Shift** held by a GM → a **pull**: the module SHALL show a ping marker at the location for all clients (a normal networked `canvas.ping`) and broadcast a scene-scoped view-pull (module socket) so every client's globe camera focuses on the location. Shift/pull SHALL take precedence over Alt/alert when both are held.
+- Shift held by a non-GM → a normal ping (pull is GM-only; the gesture degrades gracefully).
 
 This direct path SHALL NOT be subject to a post-ping cooldown: consecutive long-presses SHALL each fire a ping without a dead window between them.
 
@@ -47,10 +53,20 @@ This direct path SHALL NOT be subject to a post-ping cooldown: consecutive long-
 - **WHEN** the player fires a ping and then long-presses again after the first ping completes
 - **THEN** the second long-press fires another ping immediately, with no multi-second dead window
 
-#### Scenario: Alt long-press uses the alert style
+#### Scenario: Alt long-press fires an alert ping
 
 - **WHEN** the player long-presses with the Alt modifier held
-- **THEN** the module calls `canvas.ping()` with the alert style
+- **THEN** the module fires an alert ping (`canvas.ping` with the alert style)
+
+#### Scenario: GM Shift long-press fires a pull
+
+- **WHEN** a GM long-presses with the Shift modifier held
+- **THEN** the module shows a ping marker at the location for all clients and broadcasts a scene-scoped pull so each client's globe focuses there (taking precedence over Alt if also held)
+
+#### Scenario: Non-GM Shift long-press falls back to a normal ping
+
+- **WHEN** a non-GM long-presses with the Shift modifier held (and not Alt)
+- **THEN** the module fires a normal ping (no pull)
 
 #### Scenario: A short click does not fire a ping
 
