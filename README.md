@@ -6,6 +6,27 @@ A Foundry VTT module (v12 and v13) that renders a scene's standard 2D battlemap 
 
 v0 / minimum-viable spike. Loads the active scene's background image directly and projects it onto a sphere. Dynamic content (tokens, walls, lighting, vision, modules) is NOT yet captured onto the globe — that's the next milestone. Input forwarding still synthesizes PIXI events under the hood, so the 2D scene continues to receive clicks, but the sphere texture itself does not reflect them.
 
+## Install (Foundry)
+
+In Foundry: **Setup → Add-on Modules → Install Module**, and paste this into **Manifest URL**:
+
+```
+https://github.com/kjkm/foundry-planetside/releases/latest/download/module.json
+```
+
+Foundry downloads the latest release and checks this same URL for updates. (No build tooling needed on the server — the released zip already bundles Three.js.)
+
+## Releasing
+
+Releases are published automatically by `.github/workflows/release.yml` when a version tag is pushed:
+
+```
+git tag v0.1.0
+git push --tags
+```
+
+The workflow vendors Three.js (`npm ci` → `setup.js`), writes the release version and the `manifest`/`download` URLs into `module.json`, zips the runtime files into `module.zip` (rooted at `planetside/`), and attaches both to a GitHub Release. The `version` value is the tag without its leading `v`.
+
 ## Install (local development)
 
 ```

@@ -13,7 +13,7 @@
   ],
   "esmodules": ["scripts/main.js"],
   "styles": ["styles/planetside.css"],
-  "url": "",
-  "manifest": "",
+  "url": "https://github.com/kjkm/foundry-planetside",
+  "manifest": "https://github.com/kjkm/foundry-planetside/releases/latest/download/module.json",
   "download": ""
 }
