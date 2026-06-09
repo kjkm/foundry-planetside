@@ -89,6 +89,33 @@
 
     <hr>
 
+    <h3>Minimap</h3>
+    <p class="notes">A flat minimap shown in the corner of the globe view, with a crosshair reticle tracking where the camera is looking. Stretched to the scene's aspect ratio. Leave the image empty to use the scene background (always exact); a custom image tracks longitude exactly and latitude best when it shares the globe's projection.</p>
+
+    <div class="form-group">
+        <label>Enable minimap</label>
+        <input type="checkbox" name="flags.planetside.minimapEnabled" {{#if minimapEnabled}}checked{{/if}}>
+    </div>
+
+    <div class="form-group">
+        <label>Minimap image</label>
+        <div class="form-fields">
+            <button type="button" class="file-picker" data-type="image" data-target="flags.planetside.minimapImage" title="Browse Files" tabindex="-1">
+                <i class="fas fa-file-import fa-fw"></i>
+            </button>
+            <input type="text" name="flags.planetside.minimapImage" value="{{minimapImage}}" placeholder="(scene background)">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>Minimap corner</label>
+        <select name="flags.planetside.minimapCorner">
+            {{selectOptions minimapCornerOptions selected=minimapCorner}}
+        </select>
+    </div>
+
+    <hr>
+
     <h3>Title overlay</h3>
     <p class="notes">A title and optional subtitle rendered in a corner of the canvas while Planetside is active. Leave both empty to hide.</p>
 

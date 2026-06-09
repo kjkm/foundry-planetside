@@ -6,6 +6,7 @@ import { OrbitCamera } from "./camera.js";
 import { InputForwarder } from "./input.js";
 import { OverlayReanchor } from "./overlays.js";
 import { TitleOverlay, readTitleFlags } from "./title.js";
+import { MinimapOverlay, readMinimapFlags } from "./minimap.js";
 import { TokenLayer } from "./tokens.js";
 import { TileLayer } from "./tiles.js";
 
@@ -39,6 +40,8 @@ export class Planetside {
     this.input = null;
     this.overlays = null;
     this.titleOverlay = null;
+    this.minimap = null;
+    this._minimapFlags = { minimapEnabled: false, minimapImage: "", minimapCorner: "br" };
     this.tokenLayer = null;
     this.tileLayer = null;
     this._tickerCb = null;
@@ -150,6 +153,13 @@ export class Planetside {
     this.titleOverlay = new TitleOverlay({ hostElement: this.host });
     this.titleOverlay.install();
     this.titleOverlay.update(readTitleFlags(canvas.scene));
+
+    // Flat minimap overlay (everyone). Reticle is driven from the orbit camera in
+    // _frame(); enable/image come from scene flags (image falls back to the scene
+    // background). install() only builds the DOM — the first update() reveals it.
+    this.minimap = new MinimapOverlay({ projection: this.projection, hostElement: this.host });
+    this.minimap.install();
+    this._minimapFlags = readMinimapFlags(canvas.scene);
 
     this.tokenLayer.install();
     this.tileLayer.install();
@@ -290,6 +300,13 @@ export class Planetside {
     this.titleOverlay.update(readTitleFlags(canvas.scene));
   }
 
+  // Re-read the minimap flags (enabled, image) so the live overlay picks up scene-
+  // config edits. The reticle position is driven separately each frame in _frame().
+  refreshMinimap() {
+    if (!this.active || !this.minimap) return;
+    this._minimapFlags = readMinimapFlags(canvas.scene);
+  }
+
   // Re-apply lighting/atmosphere flags live (no rebuild). Called on flag change.
   applyLighting() {
     if (!this.active || !this.scene3d) return;
@@ -370,6 +387,7 @@ export class Planetside {
     this.tokenLayer?.destroy();
     this.tileLayer?.destroy();
     this.titleOverlay?.destroy();
+    this.minimap?.destroy();
     this.overlays?.uninstall();
     this.input?.uninstall();
     this.orbit?.uninstall();
@@ -382,6 +400,7 @@ export class Planetside {
     this.input = null;
     this.overlays = null;
     this.titleOverlay = null;
+    this.minimap = null;
     this.tokenLayer = null;
     this.tileLayer = null;
     this._introTarget = null;
@@ -409,5 +428,13 @@ export class Planetside {
       this._dirty = false;
     }
     this.overlays.update();
+    // Reticle tracks the live camera; orbit az/el ARE the view-center lon/lat.
+    this.minimap?.update({
+      enabled: this._minimapFlags.minimapEnabled,
+      imageSrc: this._minimapFlags.minimapImage,
+      corner: this._minimapFlags.minimapCorner,
+      azimuth: this.orbit?.azimuth ?? 0,
+      elevation: this.orbit?.elevation ?? 0
+    });
   }
 }
