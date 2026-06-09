@@ -82,11 +82,20 @@ export class OverlayReanchor {
   // and removed automatically when it expires.
   spawnPing(sceneX, sceneY, options = {}) {
     if (!this.host || sceneX == null || sceneY == null) return;
-    const c = options?.user?.color;
-    const color = (c && (c.css ?? c.toString())) || "#ff6400";
     const el = document.createElement("div");
     el.className = "planetside-ping";
-    el.style.setProperty("--ping-color", color);
+    // Style-aware: an alert ping is uniformly urgent (red) regardless of who sent
+    // it, so let the CSS variant own --ping-color — do NOT set it inline (an inline
+    // custom property would beat the stylesheet rule). A normal ping is tinted by
+    // the pinging user's colour, set inline here. Style arrives in drawPing options
+    // (observed as { style: "alert", ... }).
+    if (options?.style === "alert") {
+      el.classList.add("planetside-ping--alert");
+    } else {
+      const c = options?.user?.color;
+      const color = (c && (c.css ?? c.toString())) || "#ff6400";
+      el.style.setProperty("--ping-color", color);
+    }
     el.style.display = "none"; // placed on the next update()
     this.host.appendChild(el);
     const duration = CONFIG?.Canvas?.pings?.duration ?? PING_DURATION_MS;

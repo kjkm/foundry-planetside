@@ -18,6 +18,14 @@ const INTRO_AZ_OFFSET = 1.6;         // rad — lateral spin into the target
 const INTRO_ELEV_EASE_POWER = 3;     // elevation lag: higher = tilts up later
 const INTRO_DURATION_MS = 4400;      // slow ease-in
 
+// Module socket channel for the GM pull (rotate every client's globe to a point).
+const PULL_SOCKET = "module.planetside";
+
+// Pull camera move: like the opening's settle but scaled for a repeated action —
+// lag the elevation (lateral spin first, tilt last) over a medium eased duration.
+const PULL_DURATION_MS = 1600;
+const PULL_ELEV_EASE_POWER = 2; // >0 lags elevation (matches the opening's feel)
+
 export class Planetside {
   constructor() {
     this.active = false;
@@ -33,6 +41,7 @@ export class Planetside {
     this._tickerCb = null;
     this._dirty = true;               // render-on-demand gate (D1)
     this._foundryRenderRemoved = false; // Foundry 2D render suspended? (D3)
+    this._socketCb = null;            // GM-pull socket listener
   }
 
   // Mark the globe as needing a re-render this frame. Called by every motion
@@ -93,7 +102,8 @@ export class Planetside {
       scene3d: this.scene3d,
       mercator: this.mercator,
       orbitCamera: this.orbit,
-      tokenLayer: this.tokenLayer
+      tokenLayer: this.tokenLayer,
+      onGmPull: (x, y) => this.firePull(x, y)
     });
 
     this.input.install();
@@ -140,7 +150,37 @@ export class Planetside {
     // Stop Foundry painting its (now hidden) 2D canvas every tick (D3).
     this._suspendFoundryRender();
 
+    // Listen for GM pulls from other clients (scoped to this scene) and focus.
+    this._socketCb = (data) => {
+      if (data?.t === "pull" && data.sceneId === canvas.scene?.id) this.pullTo(data.x, data.y);
+    };
+    game.socket?.on(PULL_SOCKET, this._socketCb);
+
     this.active = true;
+  }
+
+  // GM Shift+long-press: show a ping marker at the location for everyone (a normal
+  // networked canvas.ping; our drawPing wrap renders the globe marker on every
+  // client), broadcast a scene-scoped pull so each client focuses its globe, and
+  // focus our own globe now (socket emits don't loop back to the sender).
+  firePull(sceneX, sceneY) {
+    try { canvas.ping({ x: sceneX, y: sceneY }); }
+    catch (err) { console.warn("[planetside] pull ping failed", err); }
+    game.socket?.emit(PULL_SOCKET, { t: "pull", sceneId: canvas.scene?.id, x: sceneX, y: sceneY });
+    this.pullTo(sceneX, sceneY);
+  }
+
+  // Ease the globe camera to a scene location (a received or locally-issued pull),
+  // reusing the focus() primitive. focus() yields to manual orbit if the user drags.
+  pullTo(sceneX, sceneY) {
+    if (!this.active) return;
+    const t = this.sceneToCameraTarget(sceneX, sceneY);
+    // Rotate only — keep each viewer's current zoom (omit radius), and use the
+    // opening's lateral-then-tilt easing so the pull settles like the scene load.
+    this.orbit?.focus(
+      { azimuth: t.azimuth, elevation: t.elevation },
+      { animate: true, duration: PULL_DURATION_MS, elevEasePower: PULL_ELEV_EASE_POWER }
+    );
   }
 
   // Remove ONLY Foundry's per-frame 2D render from the shared ticker, leaving the
@@ -177,17 +217,24 @@ export class Planetside {
   // x/y are null (no default view set — the common case) we centre on the scene.
   _defaultViewTarget() {
     const init = canvas.scene?.initial ?? {};
+    return this.sceneToCameraTarget(init.x, init.y, init.scale ?? 1);
+  }
+
+  // Map a scene coordinate (+ optional Foundry view scale) to an orbit-camera
+  // target { azimuth = lon, elevation = lat, radius }. Shared by the default-view
+  // opening and the GM pull. When x/y are null, centres on the scene (az/el 0).
+  sceneToCameraTarget(sceneX, sceneY, scale = 1) {
     const dims = canvas.dimensions;
     let azimuth = 0;
     let elevation = 0;
-    if (init.x != null && init.y != null && dims) {
-      const u = (init.x - dims.sceneX) / dims.sceneWidth;
-      const v = (init.y - dims.sceneY) / dims.sceneHeight;
+    if (sceneX != null && sceneY != null && dims) {
+      const u = (sceneX - dims.sceneX) / dims.sceneWidth;
+      const v = (sceneY - dims.sceneY) / dims.sceneHeight;
       const { lat, lon } = this.mercator.uvToLatLon(u, v);
       azimuth = lon;
       elevation = lat;
     }
-    return { azimuth, elevation, radius: this._scaleToRadius(init.scale ?? 1) };
+    return { azimuth, elevation, radius: this._scaleToRadius(scale) };
   }
 
   // Heuristic: Foundry view `scale` (canvas px per scene px) → orbit radius. The
@@ -217,6 +264,10 @@ export class Planetside {
     if (this._tickerCb) {
       canvas.app.ticker.remove(this._tickerCb);
       this._tickerCb = null;
+    }
+    if (this._socketCb) {
+      game.socket?.off(PULL_SOCKET, this._socketCb);
+      this._socketCb = null;
     }
     // Restore Foundry's 2D render (and paint one frame) before #board is unhidden.
     this._restoreFoundryRender();

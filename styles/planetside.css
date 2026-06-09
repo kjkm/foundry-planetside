@@ -65,3 +65,18 @@ body.planetside-active #hud {
   70% { opacity: 0.25; }
   100% { transform: scale(2.8); opacity: 0; }
 }
+
+/* Alert ping (Alt+long-press): urgent red, thicker, faster pulse — overrides the
+   user colour so it reads as "look here" regardless of who sent it. */
+.planetside-ping--alert {
+  --ping-color: #ff2020;
+}
+.planetside-ping--alert::before,
+.planetside-ping--alert::after {
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-width: 4px;
+  box-shadow: 0 0 10px var(--ping-color);
+  animation-duration: 0.9s;
+}
