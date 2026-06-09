@@ -146,7 +146,10 @@ export class Planetside {
       scene3d: this.scene3d,
       projection: this.projection,
       hostElement: this.host,
-      heightfield: this.heightfield
+      heightfield: this.heightfield,
+      // Mirror every ping onto the minimap (the minimap is created just below; the
+      // callback fires at ping time, by which point the reference is set).
+      onPing: (x, y, options) => this.minimap?.spawnPing(x, y, options)
     });
     this.overlays.install();
 

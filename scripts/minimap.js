@@ -16,6 +16,10 @@ export const MINIMAP_CORNER_OPTIONS = Object.freeze({
 const MINIMAP_WIDTH = 280;
 const CORNER_INSET = 16;
 
+// Fallback ping lifetime (ms) if CONFIG.Canvas.pings.duration is unset — matches
+// the globe ping fallback in overlays.js so minimap and globe pings expire together.
+const PING_DURATION_MS = 2000;
+
 // Extra per-corner inset (px, added to CORNER_INSET on the named edges) so the
 // panel clears Foundry's core UI in that corner: tl/tr the scene navigation bar,
 // tl/bl the left tool controls column, bl the players list, br the hotbar. Tuned
@@ -55,6 +59,7 @@ export class MinimapOverlay {
     this.vLine = null;
     this._appliedSrc = null;     // last background image applied (change-detected)
     this._appliedLayout = null;  // last size/position string (change-detected)
+    this._pings = [];            // active ping markers: { el, timer }
   }
 
   install() {
@@ -184,7 +189,53 @@ export class MinimapOverlay {
     return this.projection.uvToLatLon(u, v);
   }
 
+  // Mirror a Foundry ping as a flat marker on the panel. Called via the controller
+  // from OverlayReanchor's single ping capture point (observers must NOT wrap
+  // drawPing). The position is set once — the panel is flat and doesn't track the
+  // camera, and a %-anchored child rides along when the panel moves — and the
+  // marker auto-expires with the globe ping. Inert (pointer-events off in CSS) so
+  // it never blocks click-to-pull.
+  spawnPing(sceneX, sceneY, options = {}) {
+    if (!this.container || sceneX == null || sceneY == null) return;
+    const dims = canvas.dimensions;
+    if (!dims) return;
+    const u = (sceneX - dims.sceneX) / dims.sceneWidth;
+    const v = (sceneY - dims.sceneY) / dims.sceneHeight;
+
+    const el = document.createElement("div");
+    el.className = "planetside-minimap-ping";
+    // Style mirrors OverlayReanchor#spawnPing: alert is uniformly red (CSS owns the
+    // colour), a normal ping is tinted by the pinging user's colour (set inline).
+    if (options?.style === "alert") {
+      el.classList.add("planetside-minimap-ping--alert");
+    } else {
+      const c = options?.user?.color;
+      const color = (c && (c.css ?? c.toString())) || "#ff6400";
+      el.style.setProperty("--ping-color", color);
+    }
+    el.style.left = `${u * 100}%`;
+    el.style.top = `${v * 100}%`;
+    this.container.appendChild(el);
+
+    const duration = CONFIG?.Canvas?.pings?.duration ?? PING_DURATION_MS;
+    const entry = { el, timer: null };
+    entry.timer = setTimeout(() => this._removePing(entry), duration);
+    this._pings.push(entry);
+  }
+
+  _removePing(entry) {
+    if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+    entry.el?.parentNode?.removeChild(entry.el);
+    const i = this._pings.indexOf(entry);
+    if (i >= 0) this._pings.splice(i, 1);
+  }
+
   destroy() {
+    for (const p of this._pings) {
+      if (p.timer) clearTimeout(p.timer);
+      p.el?.parentNode?.removeChild(p.el);
+    }
+    this._pings = [];
     if (this.container) {
       if (this._onClick) this.container.removeEventListener("click", this._onClick);
       if (this.container.parentNode) this.container.parentNode.removeChild(this.container);

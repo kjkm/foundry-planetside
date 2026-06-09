@@ -76,6 +76,42 @@ body.planetside-active #hud {
   pointer-events: none;
 }
 
+/* Minimap ping marker: the globe ping's expanding-ring pulse, scaled down for the
+   small panel. A zero-size anchor placed at the ping's (u, v) by MinimapOverlay;
+   the rings are drawn by the pseudo-elements, centred via translate(-50%,-50%).
+   Inert so it never blocks the panel's click-to-pull. Reuses the shared
+   planetside-ping-pulse keyframes (defined below). */
+.planetside-minimap-ping {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;            /* above the reticle marks within the panel */
+  transform: translate(-50%, -50%);
+  --ping-color: #ff6400;
+}
+.planetside-minimap-ping::before,
+.planetside-minimap-ping::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 2px solid var(--ping-color);
+  border-radius: 50%;
+  box-shadow: 0 0 4px var(--ping-color);
+  opacity: 0;
+  animation: planetside-ping-pulse 1.3s ease-out infinite;
+}
+.planetside-minimap-ping::after {
+  animation-delay: 0.45s;
+}
+.planetside-minimap-ping--alert {
+  --ping-color: #ff2020;
+}
+
 /* Globe ping marker: an expanding-ring pulse in the pinging user's colour
    (--ping-color), anchored at the ping's projected sphere position by
    OverlayReanchor. The element is a zero-size anchor point; the rings are drawn
