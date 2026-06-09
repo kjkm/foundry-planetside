@@ -1,10 +1,4 @@
-# globe-terrain Specification
-
-## Purpose
-
-Render an optional per-scene heightmap as real terrain on the globe: CPU-baked radial displacement of the body (so the displaced mesh is the true, raycastable surface), a derived normal map for fine relief shading, and a shared elevation field that keeps surface-anchored content (tokens, tiles, pings, overlays) and input consistent with the displaced surface. Flat fallback when no heightmap is set; the 2D scene is unaffected.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Optional heightmap displaces the globe body (CPU-baked)
 
@@ -43,36 +37,3 @@ The CPU-side derivation — the height readback, the normal-map (Sobel) pass, an
 
 - **WHEN** a high-resolution heightmap (and/or background image) is used
 - **THEN** the height readback, normal-map derivation, and bake operate at a capped working resolution so load-time CPU cost does not scale with the source image size, while the color texture remains full-resolution
-
-### Requirement: Derived normal map adds fine relief shading
-
-When a heightmap is active, the module SHALL derive a normal map from the height buffer (a gradient/Sobel pass) and apply it to the body material with a configurable relief strength, so surface detail finer than the vertex resolution is shaded. When no heightmap is set, no normal map SHALL be applied.
-
-#### Scenario: Fine relief is shaded beyond vertex resolution
-
-- **WHEN** a heightmap is active
-- **THEN** the body material carries a derived normal map so small features read as relief under lighting even between displaced vertices
-
-#### Scenario: Relief strength is configurable
-
-- **WHEN** the relief strength is changed
-- **THEN** the intensity of the normal-map shading changes accordingly
-
-### Requirement: Surface-anchored content rests on the terrain
-
-When the globe is displaced, the module SHALL raise surface-anchored content to the terrain via a shared elevation field. Tokens and tiles (flat meshes) SHALL be lifted clear of the terrain they cover — their radial position SHALL include the **maximum** elevation sampled over their footprint — so a mesh rests on its highest covered point and does not clip into terrain. Reanchored DOM overlays (pings, token HUD, chat bubbles, tooltips) SHALL project from the terrain elevation at their anchor point. When no heightmap is set, the elevation field SHALL return zero everywhere and content SHALL be positioned exactly as before.
-
-#### Scenario: Tokens and tiles rest clear of the terrain they cover
-
-- **WHEN** the globe is displaced and a token or tile is shown
-- **THEN** it is lifted to the highest terrain under its footprint, so the flat mesh rests grounded on its tallest covered point and does not clip into nearby relief
-
-#### Scenario: Pings and overlays follow the terrain
-
-- **WHEN** the globe is displaced and a ping or a reanchored overlay is shown
-- **THEN** it is positioned at the terrain elevation of its scene coordinate
-
-#### Scenario: Flat scene is unaffected
-
-- **WHEN** no heightmap is set
-- **THEN** the elevation field returns zero and all content is positioned exactly as it was before this capability

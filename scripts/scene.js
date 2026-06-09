@@ -13,6 +13,9 @@ const TERRAIN_RINGS = 128;
 // pole vertex; damp displacement to zero within this band of the pole so it can't
 // spike. When caps exist the edge is a circle (no spike) and carries full heights.
 const POLE_DAMP_BAND_DEG = 6;
+// Cap-colour readback works at this resolution (low-frequency; the body's colour
+// texture stays full-res). Independent of the source image size.
+const BG_CAPCOLOR_MAX = 512;
 // How fast a cap's per-longitude rim variation fades toward the pole. Higher =
 // the bumpy rim detail is confined nearer the rim and the cap centre is a smooth
 // dome (avoids a puckered/creased pole). 1 = linear.
@@ -71,9 +74,11 @@ export class Scene {
     this.southCap = null;
     this.capMaterial = null;
     this._capColor = null;  // perimeter-average (cap centre colour), linear
-    this._bgPixels = null;  // background image pixel buffer, for cap rim colours
+    this._bgPixels = null;  // background image pixel buffer (downsampled), for cap colours
     this._bgW = 0;
     this._bgH = 0;
+    this.colorReady = false; // colour texture loaded + pixels read back
+    this._onColorReady = null; // controller hook: decide reveal / cap / terrain build
     this.bodyTexture = null;
     this.sunLight = null;
     this.ambient = null;
@@ -539,22 +544,27 @@ export class Scene {
   _onImageLoaded(texture) {
     const img = texture.image;
     if (!img || !img.width || !img.height) return;
+    // Downsample for the cap-colour readback (low-frequency). The body's full-res
+    // colour texture is the TextureLoader texture itself — untouched, GPU-uploaded.
+    const scale = Math.min(1, BG_CAPCOLOR_MAX / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
     const c = document.createElement("canvas");
-    c.width = img.width;
-    c.height = img.height;
+    c.width = w; c.height = h;
     const ctx = c.getContext("2d");
-    ctx.drawImage(img, 0, 0);
-    const data = ctx.getImageData(0, 0, img.width, img.height).data;
-    // Keep the pixel buffer so the caps can sample per-longitude rim colors.
+    ctx.drawImage(img, 0, 0, w, h);
+    const data = ctx.getImageData(0, 0, w, h).data;
     this._bgPixels = data;
-    this._bgW = img.width;
-    this._bgH = img.height;
-    const { r, g, b } = samplePerimeterAverageColor(data, img.width, img.height);
+    this._bgW = w;
+    this._bgH = h;
+    const { r, g, b } = samplePerimeterAverageColor(data, w, h);
     // The average is the cap's centre colour; sRGB → linear so it matches the body.
     this._capColor = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
-    // Rebuild so the caps pick up the per-longitude rim colours (and the average
-    // centre) now that the image pixels are available.
-    this.rebuildBody();
+    // The colour texture reveals on its own (GPU update). The controller decides
+    // when to (re)build caps/terrain now the image pixels are available — we do
+    // NOT rebuild here (keeps the flat reveal cheap and avoids redundant bakes).
+    this.colorReady = true;
+    this._onColorReady?.();
   }
 
   render() {

@@ -1,5 +1,11 @@
 import * as THREE from "./vendor/three.module.js";
 
+// CPU derivation (readback, Sobel normal map, bake sampling) runs at this capped
+// working resolution (long edge), independent of the source image size — so load
+// cost doesn't scale with high-res heightmaps. The colour texture stays full-res.
+// ≥ the body tessellation and high enough for crisp normals; tune by eye.
+const TERRAIN_WORK_MAX = 1536;
+
 export const TERRAIN_DEFAULTS = Object.freeze({
   heightmap: "",
   displacementScale: 0.03, // in globe radii (sphere radius = 1)
@@ -66,11 +72,16 @@ export class Heightfield {
 
   _ingest(img) {
     if (!img?.width || !img?.height) return;
-    const w = img.width, h = img.height;
+    // Downsample to a capped working resolution before readback so the Sobel pass
+    // and bake sampling don't scale with the source image's size. drawImage does
+    // the scaling natively (cheap); getImageData then runs on the small canvas.
+    const scale = Math.min(1, TERRAIN_WORK_MAX / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
     const c = document.createElement("canvas");
     c.width = w; c.height = h;
     const ctx = c.getContext("2d");
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, 0, 0, w, h);
     const data = ctx.getImageData(0, 0, w, h).data;
     const buf = new Float32Array(w * h);
     for (let i = 0; i < w * h; i++) {

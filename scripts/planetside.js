@@ -44,6 +44,10 @@ export class Planetside {
     this._dirty = true;               // render-on-demand gate (D1)
     this._foundryRenderRemoved = false; // Foundry 2D render suspended? (D3)
     this._socketCb = null;            // GM-pull socket listener
+    this._introTarget = null;         // deferred establishing-shot target
+    this._introStarted = false;       // opening begun (on first reveal)?
+    this._terrainBaked = false;       // terrain baked + swapped in this activation?
+    this._capsColored = false;        // caps coloured from the image (no-heightmap path)?
   }
 
   // Mark the globe as needing a re-render this frame. Called by every motion
@@ -87,8 +91,11 @@ export class Planetside {
     });
     this.scene3d.init();
 
-    // When the heightmap finishes loading (async), re-bake the body and redraw.
-    this.heightfield.onReady = () => { this.scene3d?.rebuildBody(); this.markDirty(); };
+    // Coordinate the load sequence: the colour texture reveals the flat globe and
+    // starts the opening; terrain bakes in (once) when its inputs are ready and
+    // swaps in. Both async loads funnel through _onGlobeAssetReady.
+    this.scene3d._onColorReady = () => this._onGlobeAssetReady();
+    this.heightfield.onReady = () => this._onGlobeAssetReady();
 
     this.orbit = new OrbitCamera({
       camera: this.scene3d.camera,
@@ -147,16 +154,20 @@ export class Planetside {
     // settle on the scene's default view (or scene centre). Elevation lags
     // (elevEasePower) so the camera tilts up to the destination latitude only at
     // the end — the spin stays side-on until it arrives.
+    // Snap to the wide establishing pose now (a framed view, not a black void),
+    // but DEFER the animated opening until the globe is first revealed (colour
+    // texture ready). Starting it here would let its wall-clock tween advance
+    // through the load freeze and snap to mid-animation. _maybeStartIntro() begins
+    // it on reveal so it plays as one continuous eased move.
     const target = this._defaultViewTarget();
+    this._introTarget = target;
+    this._introStarted = false;
+    this._terrainBaked = false;
+    this._capsColored = false;
     this.orbit.focus(
       { azimuth: target.azimuth + INTRO_AZ_OFFSET, elevation: 0, radius: INTRO_RADIUS },
       { animate: false }
     );
-    this.orbit.focus(target, {
-      animate: true,
-      duration: INTRO_DURATION_MS,
-      elevEasePower: INTRO_ELEV_EASE_POWER
-    });
 
     this._dirty = true; // force the first frame to render
     this._tickerCb = () => this._frame();
@@ -286,8 +297,50 @@ export class Planetside {
       latitudeSpanDeg: projFlags.latitudeSpan
     });
     this.heightfield?.configure(readTerrainFlags(canvas.scene));
+    // A changed heightmap reloads async; allow its onReady to re-bake. The direct
+    // rebuild below handles the projection-only / already-loaded case immediately.
+    this._terrainBaked = false;
+    this._capsColored = false;
     this.scene3d?.rebuildBody();
     this.markDirty();
+  }
+
+  // Both async globe assets (colour texture, heightmap) funnel here. Reveal what's
+  // ready, start the opening once revealed, and bake terrain a single time once
+  // its inputs are ready — coalesced regardless of which asset loads first.
+  _onGlobeAssetReady() {
+    if (!this.active) return;
+    this.markDirty();
+    this._maybeStartIntro();
+
+    const hf = this.heightfield;
+    const colorReady = !!this.scene3d?.colorReady;
+    if (hf?.enabled) {
+      // Terrain: bake once, when both the heightmap and the colour (for cap
+      // colours) are ready, then swap it in over the flat body.
+      if (hf.loaded && colorReady && !this._terrainBaked) {
+        this._terrainBaked = true;
+        this.scene3d.rebuildBody();
+      }
+    } else if (colorReady && !this._capsColored && !this.projection?.coversPoles) {
+      // No heightmap but caps exist: rebuild once to apply cap colours from the
+      // loaded image. (Full-sphere coverage has no caps — nothing to recolour.)
+      this._capsColored = true;
+      this.scene3d.rebuildBody();
+    }
+  }
+
+  // Start the eased opening the first time the globe is actually revealed (colour
+  // texture ready), so the tween plays continuously instead of advancing on
+  // wall-clock time while frames are stalled during the load.
+  _maybeStartIntro() {
+    if (this._introStarted || !this.scene3d?.colorReady || !this._introTarget) return;
+    this._introStarted = true;
+    this.orbit?.focus(this._introTarget, {
+      animate: true,
+      duration: INTRO_DURATION_MS,
+      elevEasePower: INTRO_ELEV_EASE_POWER
+    });
   }
 
   deactivate() {
@@ -319,6 +372,10 @@ export class Planetside {
     this.titleOverlay = null;
     this.tokenLayer = null;
     this.tileLayer = null;
+    this._introTarget = null;
+    this._introStarted = false;
+    this._terrainBaked = false;
+    this._capsColored = false;
     this.projection = null;
     this.heightfield = null;
     this.host = null;
