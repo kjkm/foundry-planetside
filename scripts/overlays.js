@@ -137,7 +137,12 @@ export class OverlayReanchor {
   _reanchorTokenHud() {
     const tokenHud = canvas.hud?.token;
     if (!tokenHud?.rendered || !tokenHud.object) return;
-    const el = tokenHud.element?.[0] ?? document.querySelector("#token-hud");
+    // Resolve the HUD ROOT element across Foundry versions: v12 `.element` is a
+    // jQuery object (DOM node at [0]); v13 ApplicationV2 `.element` is the root
+    // HTMLElement (<form id="token-hud">) — and `form[0]` is its first FIELD, not
+    // the HUD, so never index into an HTMLElement. Fall back to the stable id.
+    const raw = tokenHud.element;
+    const el = (raw instanceof HTMLElement ? raw : raw?.[0]) ?? document.querySelector("#token-hud");
     if (!el) return;
     const tok = tokenHud.object;
     this._reanchorElement(el, { x: tok.center.x, y: tok.center.y });
