@@ -1,0 +1,88 @@
+name: Release
+
+# Publish a GitHub Release whenever a version tag (vX.Y.Z) is pushed.
+# The release carries module.json + module.zip as assets so Foundry can install
+# the module from the stable manifest URL and detect future updates.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  REPO_URL: https://github.com/kjkm/foundry-planetside
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # npm ci runs the postinstall (setup.js), which vendors Three.js into
+      # scripts/vendor/three.module.js. That file is gitignored and NOT in the
+      # repo, so this step is what makes the released zip a working module.
+      - name: Install and vendor dependencies
+        run: npm ci
+
+      - name: Verify vendored Three.js is present
+        run: |
+          f=scripts/vendor/three.module.js
+          if [ ! -s "$f" ]; then
+            echo "::error::$f is missing or empty after npm ci — the release would ship a broken module."
+            exit 1
+          fi
+          echo "Vendored Three.js OK ($(wc -c < "$f") bytes)."
+
+      # Foundry's version comparison breaks on inconsistent 'v' prefixes, so the
+      # version value must be bare. The tag stays vX.Y.Z; strip it for the field.
+      - name: Derive version from tag
+        id: vars
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $tag (version $version)"
+
+      # manifest -> stable 'latest' alias (Foundry polls this for updates)
+      # download -> this release's pinned zip
+      - name: Write release manifest fields
+        run: |
+          tag="${{ steps.vars.outputs.tag }}"
+          version="${{ steps.vars.outputs.version }}"
+          manifest="${REPO_URL}/releases/latest/download/module.json"
+          download="${REPO_URL}/releases/download/${tag}/module.zip"
+          tmp="$(mktemp)"
+          jq --arg v "$version" --arg m "$manifest" --arg d "$download" --arg u "$REPO_URL" \
+            '.version = $v | .manifest = $m | .download = $d | .url = $u' \
+            module.json > "$tmp"
+          mv "$tmp" module.json
+          echo "--- released module.json ---"
+          cat module.json
+
+      # Allowlist of runtime files only, rooted at a planetside/ folder so Foundry
+      # extracts to Data/modules/planetside (must match the module id).
+      - name: Build module.zip
+        run: |
+          root=planetside
+          rm -rf "$root"
+          mkdir -p "$root"
+          cp -r module.json scripts styles templates README.md "$root"/
+          zip -r module.zip "$root"
+          echo "--- zip contents ---"
+          unzip -l module.zip
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            module.json
+            module.zip
