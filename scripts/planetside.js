@@ -157,7 +157,16 @@ export class Planetside {
     // Flat minimap overlay (everyone). Reticle is driven from the orbit camera in
     // _frame(); enable/image come from scene flags (image falls back to the scene
     // background). install() only builds the DOM — the first update() reveals it.
-    this.minimap = new MinimapOverlay({ projection: this.projection, hostElement: this.host });
+    this.minimap = new MinimapOverlay({
+      projection: this.projection,
+      hostElement: this.host,
+      // Click a minimap point → ease THIS client's camera to look there (rotate
+      // only, keep zoom). Local navigation; the GM pull stays the party-wide tool.
+      onPick: (lat, lon) => this.orbit?.focus(
+        { azimuth: lon, elevation: lat },
+        { animate: true, duration: PULL_DURATION_MS, elevEasePower: PULL_ELEV_EASE_POWER }
+      )
+    });
     this.minimap.install();
     this._minimapFlags = readMinimapFlags(canvas.scene);
 

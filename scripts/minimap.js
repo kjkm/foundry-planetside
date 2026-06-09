@@ -42,11 +42,13 @@ export function readMinimapFlags(scene) {
 // stretched to the scene's aspect ratio, with a crosshair reticle — a centre box
 // plus full-span horizontal/vertical lines — tracking the orbit camera's
 // view-center. Modeled on TitleOverlay: controller-owned, install/update/destroy,
-// hot-reloaded from scene flags. Pure DOM/CSS, no input wired.
+// hot-reloaded from scene flags. Clicking the panel recenters the LOCAL camera via
+// the onPick callback (the reticle marks stay inert).
 export class MinimapOverlay {
-  constructor({ projection, hostElement }) {
+  constructor({ projection, hostElement, onPick }) {
     this.projection = projection;
     this.host = hostElement;
+    this.onPick = onPick; // (lat, lon) => recenter the local camera (controller-owned)
     this.container = null;
     this.box = null;
     this.hLine = null;
@@ -61,7 +63,8 @@ export class MinimapOverlay {
     Object.assign(this.container.style, {
       position: "fixed",
       zIndex: "12",
-      pointerEvents: "none",
+      pointerEvents: "auto",         // clickable: a click recenters the local camera
+      cursor: "pointer",
       display: "none",
       backgroundSize: "100% 100%",   // stretch/compress the image to fill the box
       backgroundRepeat: "no-repeat"
@@ -80,6 +83,14 @@ export class MinimapOverlay {
     this.container.appendChild(this.vLine);
     this.container.appendChild(this.box);
     this.host.appendChild(this.container);
+
+    // Click anywhere on the panel → recenter the local camera on that map point.
+    // `click` (not pointerdown) ignores drags and fires on release at the spot.
+    this._onClick = (e) => {
+      const ll = this.clientToLatLon(e.clientX, e.clientY);
+      if (ll) this.onPick?.(ll.lat, ll.lon);
+    };
+    this.container.addEventListener("click", this._onClick);
   }
 
   // Called each frame by the controller. `enabled`/`imageSrc` come from the scene
@@ -161,8 +172,8 @@ export class MinimapOverlay {
     });
   }
 
-  // Inverse mapping kept reachable for a future click-to-pull: a viewport point
-  // inside the panel → scene lat/lon. No input is wired in v1.
+  // Inverse of the reticle mapping: a viewport point inside the panel → {lat, lon}
+  // (null if outside). Used by the click handler to recenter the local camera.
   clientToLatLon(clientX, clientY) {
     if (!this.container) return null;
     const rect = this.container.getBoundingClientRect();
@@ -174,9 +185,12 @@ export class MinimapOverlay {
   }
 
   destroy() {
-    if (this.container && this.container.parentNode) {
-      this.container.parentNode.removeChild(this.container);
+    if (this.container) {
+      if (this._onClick) this.container.removeEventListener("click", this._onClick);
+      if (this.container.parentNode) this.container.parentNode.removeChild(this.container);
     }
+    this._onClick = null;
+    this.onPick = null;
     this.container = null;
     this.box = null;
     this.hLine = null;
